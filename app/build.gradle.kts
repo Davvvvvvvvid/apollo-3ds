@@ -97,17 +97,20 @@ tasks.matching { it.name == "assembleRelease" }.configureEach {
         if (releaseApk.exists()) {
             val targetDir = File("D:/apollo-apk")
             if (targetDir.exists()) {
-                val targetApk = File(targetDir, "Launcher3DS.apk")
+                val targetApk = File(targetDir, "apollo-3ds.apk")
                 releaseApk.copyTo(targetApk, overwrite = true)
-                println("[Auto-Export] Successfully copied 3DS Launcher APK to ${targetApk.absolutePath}")
+                val legacyTargetApk = File(targetDir, "Launcher3DS.apk")
+                releaseApk.copyTo(legacyTargetApk, overwrite = true)
+                println("[Auto-Export] Successfully copied Apollo 3DS APK to ${targetApk.absolutePath}")
             }
 
-            val localLatestDir = rootProject.file("releases/latest")
-            if (localLatestDir.exists() || rootProject.file("releases").exists()) {
-                if (!localLatestDir.exists()) localLatestDir.mkdirs()
-                val localLatestApk = File(localLatestDir, "Launcher3DS.apk")
-                releaseApk.copyTo(localLatestApk, overwrite = true)
-                println("[Auto-Export] Also copied 3DS Launcher APK to ${localLatestApk.absolutePath}")
+            val releasesDir = rootProject.file("releases")
+            if (releasesDir.exists()) {
+                val repoApk = File(releasesDir, "apollo-3ds.apk")
+                releaseApk.copyTo(repoApk, overwrite = true)
+                val legacyRepoApk = File(releasesDir, "Launcher3DS.apk")
+                releaseApk.copyTo(legacyRepoApk, overwrite = true)
+                println("[Auto-Export] Also copied Apollo 3DS APK to ${repoApk.absolutePath}")
             }
         }
     }
