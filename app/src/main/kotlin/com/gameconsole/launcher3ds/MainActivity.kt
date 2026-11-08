@@ -1548,7 +1548,9 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
 
     override fun onToggleUpperBoxartRequested() {
         repo.showUpperBoxart = !repo.showUpperBoxart
+        upperScreenView.upperDisplayMode = repo.upperDisplayMode
         upperScreenView.showUpperBoxart = repo.showUpperBoxart
+        lowerScreenView.upperDisplayMode = repo.upperDisplayMode
         lowerScreenView.showUpperBoxart = repo.showUpperBoxart
         SoundEffectEngine.playSelectApplet()
         val cur = repo.upperDisplayMode
@@ -1559,7 +1561,9 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
 
     override fun onToggleUpperLogoRequested() {
         repo.showUpperLogo = !repo.showUpperLogo
+        upperScreenView.upperDisplayMode = repo.upperDisplayMode
         upperScreenView.showUpperLogo = repo.showUpperLogo
+        lowerScreenView.upperDisplayMode = repo.upperDisplayMode
         lowerScreenView.showUpperLogo = repo.showUpperLogo
         SoundEffectEngine.playSelectApplet()
         val cur = repo.upperDisplayMode
@@ -2975,8 +2979,10 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         ).apply {
             setOnClickListener {
                 repo.cycleNextUpperDisplayMode()
+                upperScreenView.upperDisplayMode = repo.upperDisplayMode
                 upperScreenView.showUpperBoxart = repo.showUpperBoxart
                 upperScreenView.showUpperLogo = repo.showUpperLogo
+                lowerScreenView.upperDisplayMode = repo.upperDisplayMode
                 lowerScreenView.showUpperBoxart = repo.showUpperBoxart
                 lowerScreenView.showUpperLogo = repo.showUpperLogo
                 SoundEffectEngine.playSelectApplet()
@@ -3003,7 +3009,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         audioRow.addView(homeDefaultBtn, LinearLayout.LayoutParams(0, dp(42), 1f))
         container.addView(audioRow)
 
-        addSectionHeader(ctx, container, "✨ 6. 上屏展示方案 (4款预设与独立微调)")
+        addSectionHeader(ctx, container, "✨ 6. 上屏展示方案 (6款预设与独立微调)")
         val curDisplayMode = repo.upperDisplayMode
         val modeDescText = TextView(ctx).apply {
             text = "当前方案：${curDisplayMode.title}  (${curDisplayMode.desc})"
@@ -3013,21 +3019,25 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         }
         container.addView(modeDescText)
 
+        val presetScroll = HorizontalScrollView(ctx)
         val presetModeRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
         }
+        presetScroll.addView(presetModeRow)
         for (m in UpperDisplayMode.entries) {
             val isCurrent = (m == curDisplayMode)
             val btn = createStyledButton(
                 ctx = ctx,
-                text = if (isCurrent) "✓ ${m.shortLabel}" else m.shortLabel,
+                text = if (isCurrent) "✓ ${m.title}" else m.shortLabel,
                 bgColor = if (isCurrent) Color.parseColor(m.colorHex) else Color.parseColor("#CBD5E1"),
                 textColor = if (isCurrent) Color.WHITE else Color.parseColor("#1E293B")
             ).apply {
                 setOnClickListener {
                     repo.upperDisplayMode = m
+                    upperScreenView.upperDisplayMode = repo.upperDisplayMode
                     upperScreenView.showUpperBoxart = repo.showUpperBoxart
                     upperScreenView.showUpperLogo = repo.showUpperLogo
+                    lowerScreenView.upperDisplayMode = repo.upperDisplayMode
                     lowerScreenView.showUpperBoxart = repo.showUpperBoxart
                     lowerScreenView.showUpperLogo = repo.showUpperLogo
                     SoundEffectEngine.playSelectApplet()
@@ -3035,9 +3045,12 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                     showHomeMenuSettingsDialog()
                 }
             }
-            presetModeRow.addView(btn, LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(4) })
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply {
+                rightMargin = dp(6)
+            }
+            presetModeRow.addView(btn, lp)
         }
-        container.addView(presetModeRow)
+        container.addView(presetScroll)
 
         val toggleRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL

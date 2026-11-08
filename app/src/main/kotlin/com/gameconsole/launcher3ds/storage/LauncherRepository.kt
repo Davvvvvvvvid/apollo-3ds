@@ -1381,6 +1381,10 @@ class LauncherRepository(private val context: Context) {
                     showUpperBoxart = false
                     showUpperLogo = true
                 }
+                UpperDisplayMode.LOGO_TITLE -> {
+                    showUpperBoxart = false
+                    showUpperLogo = true
+                }
                 UpperDisplayMode.LOGO_HERO -> {
                     showUpperBoxart = false
                     showUpperLogo = true

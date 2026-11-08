@@ -1822,13 +1822,14 @@ class UpperScreenView @JvmOverloads constructor(
                 return
             }
 
-            if (upperDisplayMode == UpperDisplayMode.LOGO_ONLY) {
-                // 👑 纯粹 Logo 模式：超大尺寸高透官方 Logo 居中悬浮极简展示，隐藏视频屏与标题飘带
+            val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
+            if (isCenteredLogoMode) {
+                // 👑 居中 Logo 展台：支持「纯Logo极简」与「Logo+纯文字标题」
                 val logoBmp = resolveSlotLogo(item) ?: resolveSlotBoxart(item) ?: resolveSlotIcon(item)
                 val cx = stageCenterX + tiltX * 0.4f
                 val floatHeroY = kotlin.math.sin((animPhase + 0.35f) * 1.35f) * 8f
-                val cy = stageCenterY + floatHeroY
-                val curRotY = (boxRotAngleY * 0.40f + totalTiltX * 0.35f).coerceIn(-25f, 25f)
+                val cyOffset = if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) -h * 0.045f else 0f
+                val cy = stageCenterY + cyOffset + floatHeroY
                 val curRotX = (boxRotAngleX * 0.40f + totalTiltY * 0.25f).coerceIn(-20f, 20f)
 
                 videoTextureView.alpha = 0f
@@ -1836,7 +1837,11 @@ class UpperScreenView @JvmOverloads constructor(
 
                 if (logoBmp != null) {
                     val maxLogoW = (w * 0.72f).coerceIn(420f, w * 0.85f)
-                    val maxLogoH = ((h - topBarH) * 0.74f).coerceIn(240f, h * 0.78f) * bannerPopScale
+                    val maxLogoH = if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) {
+                        ((h - topBarH) * 0.65f).coerceIn(220f, h * 0.70f) * bannerPopScale
+                    } else {
+                        ((h - topBarH) * 0.74f).coerceIn(240f, h * 0.78f) * bannerPopScale
+                    }
                     val lAspect = (logoBmp.width.toFloat() / logoBmp.height.toFloat().coerceAtLeast(1f)).coerceIn(0.40f, 3.40f)
                     var drawW = maxLogoW
                     var drawH = drawW / lAspect
@@ -1904,6 +1909,18 @@ class UpperScreenView @JvmOverloads constructor(
                         canvas.drawBitmap(logoBmp, null, heroRect, bitmapPaint)
                     }
                     canvas.restore()
+
+                    // 3) 如果是「Logo+纯字标题」模式：绘制纯文字标题（不要外面的那个圈和背景，只要文字！）
+                    if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) {
+                        drawCleanStageTitleText(
+                            canvas = canvas,
+                            w = w,
+                            h = h,
+                            titleY = heroRect.bottom + h * 0.045f,
+                            title = item.title,
+                            subtitle = item.subtitle.ifBlank { item.publisher }
+                        )
+                    }
                 }
                 return
             }
@@ -2387,32 +2404,16 @@ class UpperScreenView @JvmOverloads constructor(
             stageCenterY + stageH * 0.50f
         }
 
-        // 显示 LOGO 的时候不要显示标题
-        val isShowingLogo = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || 
-                             upperDisplayMode == UpperDisplayMode.LOGO_HERO || 
-                             (!showUpperBoxart && showUpperLogo))
-        val hasVisibleLogo = (resolveSlotLogo(item) != null)
-
-        val shouldShowTitlePlate = if (upperDisplayMode == UpperDisplayMode.LOGO_ONLY) {
-            false
-        } else if (isShowingLogo && hasVisibleLogo) {
-            false
-        } else {
-            true
-        }
-
-        if (shouldShowTitlePlate) {
-            draw3dsSpeechBubblePlate(
-                canvas = canvas,
-                w = w,
-                h = h,
-                stageBottomY = effectiveBottomY,
-                title = item.title,
-                subtitle = subText,
-                platformBadge = platformBadge,
-                badgeColor = badgeColor
-            )
-        }
+        draw3dsSpeechBubblePlate(
+            canvas = canvas,
+            w = w,
+            h = h,
+            stageBottomY = effectiveBottomY,
+            title = item.title,
+            subtitle = subText,
+            platformBadge = platformBadge,
+            badgeColor = badgeColor
+        )
     }
 
     /**
@@ -2421,6 +2422,53 @@ class UpperScreenView @JvmOverloads constructor(
      * - 半透明磨砂玻璃渐变底板（透出底部 3D 舞台网格与游戏主题光晕）
      * - 顶部跨界居中镶嵌平台立体胶囊铭牌（NINTENDO 3DS / NINTENDO DS）
      */
+    /**
+     * 绘制纯净文字标题（不要外面的那个圈和背景，只要文字）
+     */
+    private fun drawCleanStageTitleText(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        titleY: Float,
+        title: String,
+        subtitle: String
+    ) {
+        val titleSize = (h * 0.065f).coerceIn(24f, 38f)
+        val origAlign = statusTextPaint.textAlign
+        val origTypeface = statusTextPaint.typeface
+        val origSize = statusTextPaint.textSize
+        val origColor = statusTextPaint.color
+
+        statusTextPaint.textAlign = Paint.Align.CENTER
+        statusTextPaint.typeface = Typeface.DEFAULT_BOLD
+        statusTextPaint.textSize = titleSize
+
+        val centerX = w / 2f
+        val safeY = titleY.coerceAtMost(h - h * 0.06f)
+
+        // 纯文字高对比度双层投影（保证在浅色天空或深色背景均清晰立显）
+        statusTextPaint.color = Color.argb(190, 0, 0, 0)
+        canvas.drawText(title, centerX + 1.5f, safeY + 2f, statusTextPaint)
+        statusTextPaint.color = Color.WHITE
+        canvas.drawText(title, centerX, safeY, statusTextPaint)
+
+        // 副标题（纯文字，如有）
+        if (subtitle.isNotBlank()) {
+            val subSize = (titleSize * 0.58f).coerceIn(13f, 20f)
+            statusTextPaint.textSize = subSize
+            statusTextPaint.typeface = Typeface.DEFAULT
+            statusTextPaint.color = Color.argb(160, 0, 0, 0)
+            canvas.drawText(subtitle, centerX + 1f, safeY + subSize * 1.35f + 1.5f, statusTextPaint)
+            statusTextPaint.color = Color.parseColor("#E2E8F0")
+            canvas.drawText(subtitle, centerX, safeY + subSize * 1.35f, statusTextPaint)
+        }
+
+        statusTextPaint.textAlign = origAlign
+        statusTextPaint.typeface = origTypeface
+        statusTextPaint.textSize = origSize
+        statusTextPaint.color = origColor
+    }
+
     private fun draw3dsSpeechBubblePlate(
         canvas: Canvas,
         w: Float,
