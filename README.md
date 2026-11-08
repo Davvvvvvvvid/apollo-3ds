@@ -19,6 +19,16 @@
 
 ---
 
+## 📦 安装包下载 / Download APK
+
+| 平台 / Platform | 下载渠道 / Download Source | 说明 / Note |
+| :--- | :--- | :--- |
+| **Gitee (国内高速)** | [📥 Gitee 直接下载 (Launcher3DS.apk)](https://gitee.com/apollo-handheld/apollo-3ds/raw/main/releases/Launcher3DS.apk) | 国内直连免代理，支持手机/掌机浏览器高速下载 |
+| **GitHub Releases** | [📥 GitHub Release 下载](https://github.com/Davvvvvvvvid/apollo-3ds/releases/latest) | 官方最新发行版安装包 |
+| **GitHub 直链** | [📥 GitHub Raw 直接下载](https://github.com/Davvvvvvvvid/apollo-3ds/raw/main/releases/Launcher3DS.apk) | 仓库直接克隆或下载 |
+
+---
+
 [中文详细说明](#中文详细说明) | [English Documentation](#english-documentation)
 
 ---

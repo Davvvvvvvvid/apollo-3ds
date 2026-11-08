@@ -12,4 +12,6 @@ local.properties
 *.jks
 *.keystore
 keystore.properties
-releases/
+# releases/
+!releases/
+!releases/*.apk
