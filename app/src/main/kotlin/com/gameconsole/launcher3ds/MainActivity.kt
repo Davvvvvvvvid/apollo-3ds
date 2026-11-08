@@ -658,6 +658,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val disabledLibs = repo.getDisabledMediaLibs()
         upperScreenView.currentTheme = theme
         upperScreenView.videoFilter = filter
+        upperScreenView.upperDisplayMode = repo.upperDisplayMode
         upperScreenView.showUpperBoxart = repo.showUpperBoxart
         upperScreenView.showUpperLogo = repo.showUpperLogo
         lowerScreenView.currentTheme = theme
@@ -665,6 +666,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         lowerScreenView.gameDescriptionResolver = { slot -> repo.resolveGameDescription(slot) }
         lowerScreenView.pegasusInspectionProvider = { platformId -> repo.inspectPegasusMetadataForPlatform(platformId) }
         lowerScreenView.hasPegasusMetadataProvider = { platformId -> repo.hasPegasusMetadata(platformId) }
+        lowerScreenView.upperDisplayMode = repo.upperDisplayMode
         lowerScreenView.showUpperBoxart = repo.showUpperBoxart
         lowerScreenView.showUpperLogo = repo.showUpperLogo
         lowerScreenView.subscreenCompanionEnabled = repo.subscreenCompanionEnabled
@@ -1533,8 +1535,10 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
 
     override fun onCycleUpperDisplayModeRequested() {
         val nextMode = repo.cycleNextUpperDisplayMode()
+        upperScreenView.upperDisplayMode = repo.upperDisplayMode
         upperScreenView.showUpperBoxart = repo.showUpperBoxart
         upperScreenView.showUpperLogo = repo.showUpperLogo
+        lowerScreenView.upperDisplayMode = repo.upperDisplayMode
         lowerScreenView.showUpperBoxart = repo.showUpperBoxart
         lowerScreenView.showUpperLogo = repo.showUpperLogo
         SoundEffectEngine.playSelectApplet()

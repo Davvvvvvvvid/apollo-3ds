@@ -1010,16 +1010,17 @@ enum class UpperDisplayMode(
     val desc: String,
     val colorHex: String
 ) {
-    LOGO_HERO(0, "✨ 悬浮Logo模式", "悬浮Logo", "高透Logo为主体 · 3DS动效与极简微浮", "#10B981"),
-    BOXART_3D(1, "📦 3D卡盒模式", "3D卡盒", "经典立体卡带盒 · 360°自由把玩", "#0284C7"),
-    DUAL_HYBRID(2, "💎 双重豪华模式", "双重豪华", "3D立体卡盒 + 悬浮Logo双重光影", "#8B5CF6"),
-    CINEMA_PURE(3, "🎬 纯净大屏模式", "纯净大屏", "居中全景视界 · 无遮挡沉浸式视频", "#F59E0B");
+    LOGO_ONLY(0, "👑 仅显示Logo", "仅Logo", "超大尺寸高透Logo · 居中悬浮极简艺术", "#EC4899"),
+    LOGO_HERO(1, "✨ 悬浮Logo模式", "悬浮Logo", "高透Logo为主体 · 3DS动效与极简微浮", "#10B981"),
+    BOXART_3D(2, "📦 3D卡盒模式", "3D卡盒", "经典立体卡带盒 · 360°自由把玩", "#0284C7"),
+    DUAL_HYBRID(3, "💎 双重豪华模式", "双重豪华", "3D立体卡盒 + 悬浮Logo双重光影", "#8B5CF6"),
+    CINEMA_PURE(4, "🎬 纯净大屏模式", "纯净大屏", "居中全景视界 · 无遮挡沉浸式视频", "#F59E0B");
 
     companion object {
-        fun fromId(id: Int): UpperDisplayMode = entries.firstOrNull { it.modeId == id } ?: LOGO_HERO
+        fun fromId(id: Int): UpperDisplayMode = entries.firstOrNull { it.modeId == id } ?: LOGO_ONLY
 
         fun fromBooleans(showBox: Boolean, showLogo: Boolean): UpperDisplayMode = when {
-            !showBox && showLogo -> LOGO_HERO
+            !showBox && showLogo -> LOGO_ONLY
             showBox && !showLogo -> BOXART_3D
             showBox && showLogo -> DUAL_HYBRID
             else -> CINEMA_PURE

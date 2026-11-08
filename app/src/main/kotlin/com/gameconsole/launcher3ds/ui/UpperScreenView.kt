@@ -261,6 +261,17 @@ class UpperScreenView @JvmOverloads constructor(
         }
 
     /**
+     * 当前上屏主舞台显示方案
+     */
+    var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.LOGO_ONLY
+        set(value) {
+            if (field != value) {
+                field = value
+                invalidate()
+            }
+        }
+
+    /**
      * 是否开启上屏预览视频原声（开启时：暂停 3DS 背景音乐，放出视频原声；关闭时：视频静音，恢复 3DS 背景音乐）
      */
     var isVideoAudioEnabled: Boolean = false
@@ -993,7 +1004,7 @@ class UpperScreenView @JvmOverloads constructor(
             }
 
             // 3) 前景 3D 视差悬浮官方透明 Logo (仅在开启卡盒且开启Logo的“双重豪华模式”下在卡盒上叠加)
-            val shouldDrawOverlayLogo = showUpperBoxart && showUpperLogo
+            val shouldDrawOverlayLogo = showUpperBoxart && showUpperLogo && upperDisplayMode == UpperDisplayMode.DUAL_HYBRID
             val logoBmp = if (shouldDrawOverlayLogo) resolveSlotLogo(item) else null
             if (logoBmp != null && !currentBoxAbsRect.isEmpty) {
                 val maxLogoW = currentBoxAbsRect.width() * 0.92f
@@ -1811,6 +1822,92 @@ class UpperScreenView @JvmOverloads constructor(
                 return
             }
 
+            if (upperDisplayMode == UpperDisplayMode.LOGO_ONLY) {
+                // 👑 纯粹 Logo 模式：超大尺寸高透官方 Logo 居中悬浮极简展示，隐藏视频屏与标题飘带
+                val logoBmp = resolveSlotLogo(item) ?: resolveSlotBoxart(item) ?: resolveSlotIcon(item)
+                val cx = stageCenterX + tiltX * 0.4f
+                val floatHeroY = kotlin.math.sin((animPhase + 0.35f) * 1.35f) * 8f
+                val cy = stageCenterY + floatHeroY
+                val curRotY = (boxRotAngleY * 0.40f + totalTiltX * 0.35f).coerceIn(-25f, 25f)
+                val curRotX = (boxRotAngleX * 0.40f + totalTiltY * 0.25f).coerceIn(-20f, 20f)
+
+                videoTextureView.alpha = 0f
+                currentScreenAbsRect.setEmpty()
+
+                if (logoBmp != null) {
+                    val maxLogoW = (w * 0.72f).coerceIn(420f, w * 0.85f)
+                    val maxLogoH = ((h - topBarH) * 0.74f).coerceIn(240f, h * 0.78f) * bannerPopScale
+                    val lAspect = (logoBmp.width.toFloat() / logoBmp.height.toFloat().coerceAtLeast(1f)).coerceIn(0.40f, 3.40f)
+                    var drawW = maxLogoW
+                    var drawH = drawW / lAspect
+                    if (drawH > maxLogoH) {
+                        drawH = maxLogoH
+                        drawW = drawH * lAspect
+                    }
+                    val heroRect = RectF(cx - drawW / 2f, cy - drawH / 2f, cx + drawW / 2f, cy + drawH / 2f)
+                    currentBoxAbsRect.set(heroRect)
+
+                    canvas.save()
+                    canvas.rotate(curRotX * 0.35f, cx, cy)
+
+                    // 1) 地面柔和透视椭圆阴影
+                    paint.style = Paint.Style.FILL
+                    paint.color = Color.argb(65, 8, 14, 24)
+                    val shadowY = cy + drawH / 2f + 16f - floatHeroY * 0.3f
+                    val shadowW = drawW * 0.75f
+                    canvas.drawOval(
+                        RectF(cx - shadowW / 2f, shadowY - 8f, cx + shadowW / 2f, shadowY + 8f),
+                        paint
+                    )
+
+                    // 2) 悬浮 Logo 背底轻柔环境光晕 (搭配游戏重音色，超大范围柔光)
+                    paint.shader = RadialGradient(
+                        cx,
+                        cy,
+                        maxOf(drawW, drawH) * 0.70f,
+                        intArrayOf(
+                            Color.argb(95, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
+                            Color.argb(35, 15, 23, 42),
+                            Color.TRANSPARENT
+                        ),
+                        floatArrayOf(0f, 0.55f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                    canvas.drawOval(
+                        RectF(heroRect.left - 32f, heroRect.top - 20f, heroRect.right + 32f, heroRect.bottom + 20f),
+                        paint
+                    )
+                    paint.shader = null
+
+                    if (resolveSlotLogo(item) != null) {
+                        // 绘制官方透明游戏 Logo
+                        canvas.drawBitmap(logoBmp, null, heroRect, bitmapPaint)
+
+                        // 表面极品流光掠过 (增加主机旗舰展示感)
+                        val sheenProgress = ((animPhase * 0.6f) % 2.0f) - 0.5f
+                        val sheenX = heroRect.left + heroRect.width() * sheenProgress
+                        val sheenW = heroRect.width() * 0.28f
+                        paint.shader = LinearGradient(
+                            sheenX - sheenW, heroRect.top, sheenX + sheenW, heroRect.bottom,
+                            intArrayOf(Color.TRANSPARENT, Color.argb(45, 255, 255, 255), Color.TRANSPARENT),
+                            null, Shader.TileMode.CLAMP
+                        )
+                        canvas.drawRect(heroRect, paint)
+                        paint.shader = null
+                    } else {
+                        // 优雅降级：若该游戏暂无透明 Logo，以大尺寸极简圆角卡片形式精致呈现封面
+                        paint.color = Color.WHITE
+                        canvas.drawRoundRect(RectF(heroRect.left - 2f, heroRect.top - 2f, heroRect.right + 2f, heroRect.bottom + 2f), 16f, 16f, paint)
+                        clipPath.reset()
+                        clipPath.addRoundRect(heroRect, 14f, 14f, Path.Direction.CW)
+                        canvas.clipPath(clipPath)
+                        canvas.drawBitmap(logoBmp, null, heroRect, bitmapPaint)
+                    }
+                    canvas.restore()
+                }
+                return
+            }
+
             // 双组件并列 3D 舞台：根据各主机平台与封面真实尺寸比例动态排版
             val plat = item.getEffectivePlatform().uppercase()
             val defaultBoxAspect = when (plat) {
@@ -1866,17 +1963,17 @@ class UpperScreenView @JvmOverloads constructor(
             } else if (showUpperLogo) {
                 // 悬浮Logo旗舰模式：左侧以大尺寸高透 Logo 为主体 (若无 Logo 则优雅降级为简约卡盒)
                 val heroAspect = if (logoBmp != null) {
-                    (logoBmp.width.toFloat() / logoBmp.height.toFloat().coerceAtLeast(1f)).coerceIn(0.60f, 2.60f)
+                    (logoBmp.width.toFloat() / logoBmp.height.toFloat().coerceAtLeast(1f)).coerceIn(0.50f, 2.80f)
                 } else {
                     boxAspect
                 }
-                if (heroAspect > 1.20f) {
-                    boxW = (stageH * 0.90f).coerceAtMost(w * 0.40f)
-                    boxH = (boxW / heroAspect).coerceIn(stageH * 0.35f, stageH * 0.70f)
+                if (heroAspect > 1.15f) {
+                    boxW = (stageH * 1.05f).coerceAtMost(w * 0.45f)
+                    boxH = (boxW / heroAspect).coerceIn(stageH * 0.38f, stageH * 0.78f)
                     boxW = boxH * heroAspect
                 } else {
-                    boxH = stageH * 0.80f
-                    boxW = (boxH * heroAspect).coerceAtMost(w * 0.36f)
+                    boxH = stageH * 0.88f
+                    boxW = (boxH * heroAspect).coerceAtMost(w * 0.40f)
                     boxH = boxW / heroAspect
                 }
                 gapBetween = stageH * 0.045f
@@ -2290,16 +2387,32 @@ class UpperScreenView @JvmOverloads constructor(
             stageCenterY + stageH * 0.50f
         }
 
-        draw3dsSpeechBubblePlate(
-            canvas = canvas,
-            w = w,
-            h = h,
-            stageBottomY = effectiveBottomY,
-            title = item.title,
-            subtitle = subText,
-            platformBadge = platformBadge,
-            badgeColor = badgeColor
-        )
+        // 显示 LOGO 的时候不要显示标题
+        val isShowingLogo = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || 
+                             upperDisplayMode == UpperDisplayMode.LOGO_HERO || 
+                             (!showUpperBoxart && showUpperLogo))
+        val hasVisibleLogo = (resolveSlotLogo(item) != null)
+
+        val shouldShowTitlePlate = if (upperDisplayMode == UpperDisplayMode.LOGO_ONLY) {
+            false
+        } else if (isShowingLogo && hasVisibleLogo) {
+            false
+        } else {
+            true
+        }
+
+        if (shouldShowTitlePlate) {
+            draw3dsSpeechBubblePlate(
+                canvas = canvas,
+                w = w,
+                h = h,
+                stageBottomY = effectiveBottomY,
+                title = item.title,
+                subtitle = subText,
+                platformBadge = platformBadge,
+                badgeColor = badgeColor
+            )
+        }
     }
 
     /**

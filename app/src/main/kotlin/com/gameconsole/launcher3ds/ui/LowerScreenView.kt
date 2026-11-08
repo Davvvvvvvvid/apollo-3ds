@@ -195,6 +195,12 @@ class LowerScreenView @JvmOverloads constructor(
             invalidate()
         }
 
+    var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.LOGO_ONLY
+        set(value) {
+            field = value
+            invalidate()
+        }
+
     var isAutoRandomPlaying: Boolean = false
         set(value) {
             field = value
@@ -2503,7 +2509,7 @@ class LowerScreenView @JvmOverloads constructor(
                         )
                     } else if (idx == 6) {
                         // 卡片 6：上屏视觉模式 (4 种方案一键循环切换：✨ 悬浮Logo -> 📦 3D卡盒 -> 💎 双重豪华 -> 🎬 纯净大屏)
-                        val curMode = UpperDisplayMode.fromBooleans(showUpperBoxart, showUpperLogo)
+                        val curMode = upperDisplayMode
                         val accent = Color.parseColor(curMode.colorHex)
                         draw3dsSculptedDockButton(canvas, cr, 18f, isPrimary = isFocused || showUpperBoxart || showUpperLogo, accentOverride = accent)
                         textPaint.color = accent
