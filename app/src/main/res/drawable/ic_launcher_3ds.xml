@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 1. 极简白底 Squircle 底座 (高质感微阴影) -->
+    <path
+        android:fillColor="#18000000"
+        android:pathData="M30,12h48a20,20 0 0,1 20,20v48a20,20 0 0,1 -20,20h-48a20,20 0 0,1 -20,-20v-48a20,20 0 0,1 20,-20z" />
+
+    <!-- 2. 纯白大圆角容器 (iOS / macOS 极简高定风格) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,10h48a20,20 0 0,1 20,20v48a20,20 0 0,1 -20,20h-48a20,20 0 0,1 -20,-20v-48a20,20 0 0,1 20,-20z" />
+
+    <!-- 3. 精致极细浅灰边框 -->
+    <path
+        android:strokeColor="#E2E8F0"
+        android:strokeWidth="1.2"
+        android:fillColor="#00000000"
+        android:pathData="M30,10h48a20,20 0 0,1 20,20v48a20,20 0 0,1 -20,20h-48a20,20 0 0,1 -20,-20v-48a20,20 0 0,1 20,-20z" />
+
+    <!-- 4. 核心图形：放大版纯黑圆形徽标 (深邃石墨黑 #111317，直径 75，醒目大气) -->
+    <path
+        android:fillColor="#111317"
+        android:pathData="M54,16.5a37.5,37.5 0 1,0 0.001,0z" />
+
+    <!-- 5. 负空间极简双屏解构 (纯白 #FFFFFF)： -->
+    <!-- 上屏：3DS 15:9 影院级宽屏形态 (宽 42，高 23，圆角 4.5) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M37.5,30h33a4.5,4.5 0 0,1 4.5,4.5v14a4.5,4.5 0 0,1 -4.5,4.5h-33a4.5,4.5 0 0,1 -4.5,-4.5v-14a4.5,4.5 0 0,1 4.5,-4.5z" />
+
+    <!-- 下屏：3DS 4:3 触控下屏形态 (宽 32，高 20，圆角 3.5) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M41.5,58h25a3.5,3.5 0 0,1 3.5,3.5v13a3.5,3.5 0 0,1 -3.5,3.5h-25a3.5,3.5 0 0,1 -3.5,-3.5v-13a3.5,3.5 0 0,1 3.5,-3.5z" />
+
+    <!-- 左侧微点：象征摇杆 Circle Pad 与街机灵动触控 (半径 3.2，醒目立体) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28.5,64.8a3.2,3.2 0 1,0 0.001,0z" />
+</vector>

@@ -1,0 +1,115 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="18"
+        android:translateY="14"
+        android:pivotX="36"
+        android:pivotY="40"
+        android:scaleX="0.85"
+        android:scaleY="0.85">
+        <!-- 机身外框 -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#000000"
+            android:strokeWidth="4"
+            android:strokeLineJoin="round"
+            android:strokeLineCap="round"
+            android:pathData="M14,8 H58 V72 H14 Z" />
+
+        <!-- 顶部装饰线（与参考图一致） -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#000000"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:pathData="M14,8 H58" />
+
+        <!-- 屏幕框 -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#000000"
+            android:strokeWidth="4"
+            android:strokeLineJoin="round"
+            android:strokeLineCap="round"
+            android:pathData="M19,13 H53 V37 H19 Z" />
+
+        <!-- 屏幕左上角红色指示灯 -->
+        <path
+            android:fillColor="#E53935"
+            android:strokeColor="#E53935"
+            android:strokeWidth="0"
+            android:pathData="M22,16 m -2,0 a 2,2 0 1,0 4,0 a 2,2 0 1,0 -4,0" />
+
+        <!-- 十字键（D-Pad） -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#000000"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:pathData="M25,46 V54" />
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#000000"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:pathData="M21,50 H29" />
+
+        <!-- A/B 按钮 -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#000000"
+            android:strokeWidth="4"
+            android:pathData="M47,49 m -4,0 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0" />
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#000000"
+            android:strokeWidth="4"
+            android:pathData="M53,43 m -4,0 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0" />
+
+        <!-- Select / Start 斜杠按钮 -->
+        <group android:rotation="-20" android:pivotX="32" android:pivotY="62">
+            <path
+                android:fillColor="#00000000"
+                android:strokeColor="#000000"
+                android:strokeWidth="3"
+                android:strokeLineCap="round"
+                android:pathData="M28,60 H34" />
+            <path
+                android:fillColor="#00000000"
+                android:strokeColor="#000000"
+                android:strokeWidth="3"
+                android:strokeLineCap="round"
+                android:pathData="M36,60 H42" />
+        </group>
+
+        <!-- 右下扬声器斜线栅格 -->
+        <group android:rotation="-35" android:pivotX="56" android:pivotY="64">
+            <path
+                android:fillColor="#00000000"
+                android:strokeColor="#000000"
+                android:strokeWidth="3"
+                android:strokeLineCap="round"
+                android:pathData="M52,60 H58" />
+            <path
+                android:fillColor="#00000000"
+                android:strokeColor="#000000"
+                android:strokeWidth="3"
+                android:strokeLineCap="round"
+                android:pathData="M52,64 H58" />
+            <path
+                android:fillColor="#00000000"
+                android:strokeColor="#000000"
+                android:strokeWidth="3"
+                android:strokeLineCap="round"
+                android:pathData="M52,68 H58" />
+        </group>
+
+        <!-- 底部小孔（装饰） -->
+        <path android:fillColor="#00000000" android:strokeColor="#000000" android:strokeWidth="3" android:pathData="M30,70 m -1.5,0 a 1.5,1.5 0 1,0 3,0 a 1.5,1.5 0 1,0 -3,0" />
+        <path android:fillColor="#00000000" android:strokeColor="#000000" android:strokeWidth="3" android:pathData="M36,70 m -1.5,0 a 1.5,1.5 0 1,0 3,0 a 1.5,1.5 0 1,0 -3,0" />
+        <path android:fillColor="#00000000" android:strokeColor="#000000" android:strokeWidth="3" android:pathData="M42,70 m -1.5,0 a 1.5,1.5 0 1,0 3,0 a 1.5,1.5 0 1,0 -3,0" />
+    </group>
+</vector>
