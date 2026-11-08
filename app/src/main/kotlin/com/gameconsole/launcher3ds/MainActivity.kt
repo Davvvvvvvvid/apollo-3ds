@@ -51,6 +51,7 @@ import com.gameconsole.launcher3ds.model.PlatformType
 import com.gameconsole.launcher3ds.model.SystemAppletType
 import com.gameconsole.launcher3ds.model.GameNoteData
 import com.gameconsole.launcher3ds.model.ThemeCatalog
+import com.gameconsole.launcher3ds.model.UpperDisplayMode
 import com.gameconsole.launcher3ds.model.ScanStorageScope
 import com.gameconsole.launcher3ds.storage.LauncherRepository
 import com.gameconsole.launcher3ds.telemetry.StartupProfiler
@@ -657,12 +658,14 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val disabledLibs = repo.getDisabledMediaLibs()
         upperScreenView.currentTheme = theme
         upperScreenView.videoFilter = filter
+        upperScreenView.showUpperBoxart = repo.showUpperBoxart
         upperScreenView.showUpperLogo = repo.showUpperLogo
         lowerScreenView.currentTheme = theme
         lowerScreenView.currentVideoFilter = filter
         lowerScreenView.gameDescriptionResolver = { slot -> repo.resolveGameDescription(slot) }
         lowerScreenView.pegasusInspectionProvider = { platformId -> repo.inspectPegasusMetadataForPlatform(platformId) }
         lowerScreenView.hasPegasusMetadataProvider = { platformId -> repo.hasPegasusMetadata(platformId) }
+        lowerScreenView.showUpperBoxart = repo.showUpperBoxart
         lowerScreenView.showUpperLogo = repo.showUpperLogo
         lowerScreenView.subscreenCompanionEnabled = repo.subscreenCompanionEnabled
         lowerScreenView.subscreenRetroFilterEnabled = repo.subscreenRetroFilterEnabled
@@ -1528,13 +1531,37 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         syncViewsWithState()
     }
 
+    override fun onCycleUpperDisplayModeRequested() {
+        val nextMode = repo.cycleNextUpperDisplayMode()
+        upperScreenView.showUpperBoxart = repo.showUpperBoxart
+        upperScreenView.showUpperLogo = repo.showUpperLogo
+        lowerScreenView.showUpperBoxart = repo.showUpperBoxart
+        lowerScreenView.showUpperLogo = repo.showUpperLogo
+        SoundEffectEngine.playSelectApplet()
+        Toast.makeText(dialogContext(), "已切换上屏方案：${nextMode.title}\n(${nextMode.desc})", Toast.LENGTH_SHORT).show()
+        syncViewsWithState()
+    }
+
+    override fun onToggleUpperBoxartRequested() {
+        repo.showUpperBoxart = !repo.showUpperBoxart
+        upperScreenView.showUpperBoxart = repo.showUpperBoxart
+        lowerScreenView.showUpperBoxart = repo.showUpperBoxart
+        SoundEffectEngine.playSelectApplet()
+        val cur = repo.upperDisplayMode
+        val desc = if (repo.showUpperBoxart) "📦 3D卡盒展示：已开启" else "📦 3D卡盒展示：已隐藏"
+        Toast.makeText(dialogContext(), "$desc (当前方案: ${cur.shortLabel})", Toast.LENGTH_SHORT).show()
+        syncViewsWithState()
+    }
+
     override fun onToggleUpperLogoRequested() {
         repo.showUpperLogo = !repo.showUpperLogo
         upperScreenView.showUpperLogo = repo.showUpperLogo
         lowerScreenView.showUpperLogo = repo.showUpperLogo
         SoundEffectEngine.playSelectApplet()
-        val desc = if (repo.showUpperLogo) "上屏游戏Logo：已开启显示" else "上屏游戏Logo：已隐藏（画面更清爽）"
-        Toast.makeText(dialogContext(), desc, Toast.LENGTH_SHORT).show()
+        val cur = repo.upperDisplayMode
+        val desc = if (repo.showUpperLogo) "🏷️ 游戏Logo展示：已开启" else "🏷️ 游戏Logo展示：已隐藏"
+        Toast.makeText(dialogContext(), "$desc (当前方案: ${cur.shortLabel})", Toast.LENGTH_SHORT).show()
+        syncViewsWithState()
     }
 
     override fun onQuickSwapScreensRequested() {
@@ -2936,15 +2963,17 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                 showHomeMenuSettingsDialog()
             }
         }
-        val logoBtn = createStyledButton(
+        val upperModeBtn = createStyledButton(
             ctx = ctx,
-            text = if (repo.showUpperLogo) "🏷️ 游戏Logo：显示" else "🏷️ 游戏Logo：隐藏(推荐)",
-            bgColor = if (repo.showUpperLogo) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
+            text = repo.upperDisplayMode.title,
+            bgColor = Color.parseColor(repo.upperDisplayMode.colorHex),
             textColor = Color.WHITE
         ).apply {
             setOnClickListener {
-                repo.showUpperLogo = !repo.showUpperLogo
+                repo.cycleNextUpperDisplayMode()
+                upperScreenView.showUpperBoxart = repo.showUpperBoxart
                 upperScreenView.showUpperLogo = repo.showUpperLogo
+                lowerScreenView.showUpperBoxart = repo.showUpperBoxart
                 lowerScreenView.showUpperLogo = repo.showUpperLogo
                 SoundEffectEngine.playSelectApplet()
                 activeAppletDialog?.dismiss()
@@ -2966,9 +2995,83 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             }
         }
         audioRow.addView(bgmBtn, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(4) })
-        audioRow.addView(logoBtn, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(4) })
+        audioRow.addView(upperModeBtn, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(4) })
         audioRow.addView(homeDefaultBtn, LinearLayout.LayoutParams(0, dp(42), 1f))
         container.addView(audioRow)
+
+        addSectionHeader(ctx, container, "✨ 6. 上屏展示方案 (4款预设与独立微调)")
+        val curDisplayMode = repo.upperDisplayMode
+        val modeDescText = TextView(ctx).apply {
+            text = "当前方案：${curDisplayMode.title}  (${curDisplayMode.desc})"
+            setTextColor(Color.parseColor(curDisplayMode.colorHex))
+            textSize = 13f
+            setPadding(0, dp(2), 0, dp(6))
+        }
+        container.addView(modeDescText)
+
+        val presetModeRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        for (m in UpperDisplayMode.entries) {
+            val isCurrent = (m == curDisplayMode)
+            val btn = createStyledButton(
+                ctx = ctx,
+                text = if (isCurrent) "✓ ${m.shortLabel}" else m.shortLabel,
+                bgColor = if (isCurrent) Color.parseColor(m.colorHex) else Color.parseColor("#CBD5E1"),
+                textColor = if (isCurrent) Color.WHITE else Color.parseColor("#1E293B")
+            ).apply {
+                setOnClickListener {
+                    repo.upperDisplayMode = m
+                    upperScreenView.showUpperBoxart = repo.showUpperBoxart
+                    upperScreenView.showUpperLogo = repo.showUpperLogo
+                    lowerScreenView.showUpperBoxart = repo.showUpperBoxart
+                    lowerScreenView.showUpperLogo = repo.showUpperLogo
+                    SoundEffectEngine.playSelectApplet()
+                    activeAppletDialog?.dismiss()
+                    showHomeMenuSettingsDialog()
+                }
+            }
+            presetModeRow.addView(btn, LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(4) })
+        }
+        container.addView(presetModeRow)
+
+        val toggleRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(6), 0, 0)
+        }
+        val boxartToggleBtn = createStyledButton(
+            ctx = ctx,
+            text = if (repo.showUpperBoxart) "📦 3D卡盒：开启" else "📦 3D卡盒：隐藏",
+            bgColor = if (repo.showUpperBoxart) Color.parseColor("#0284C7") else Color.parseColor("#64748B"),
+            textColor = Color.WHITE
+        ).apply {
+            setOnClickListener {
+                repo.showUpperBoxart = !repo.showUpperBoxart
+                upperScreenView.showUpperBoxart = repo.showUpperBoxart
+                lowerScreenView.showUpperBoxart = repo.showUpperBoxart
+                SoundEffectEngine.playSelectApplet()
+                activeAppletDialog?.dismiss()
+                showHomeMenuSettingsDialog()
+            }
+        }
+        val logoToggleBtn = createStyledButton(
+            ctx = ctx,
+            text = if (repo.showUpperLogo) "🏷️ 游戏Logo：开启" else "🏷️ 游戏Logo：隐藏",
+            bgColor = if (repo.showUpperLogo) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
+            textColor = Color.WHITE
+        ).apply {
+            setOnClickListener {
+                repo.showUpperLogo = !repo.showUpperLogo
+                upperScreenView.showUpperLogo = repo.showUpperLogo
+                lowerScreenView.showUpperLogo = repo.showUpperLogo
+                SoundEffectEngine.playSelectApplet()
+                activeAppletDialog?.dismiss()
+                showHomeMenuSettingsDialog()
+            }
+        }
+        toggleRow.addView(boxartToggleBtn, LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(6) })
+        toggleRow.addView(logoToggleBtn, LinearLayout.LayoutParams(0, dp(38), 1f))
+        container.addView(toggleRow)
 
         activeAppletDialog = AlertDialog.Builder(ctx)
             .setTitle("🏠 HOME 菜单设置 (Nintendo 3DS)")

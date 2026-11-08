@@ -53,6 +53,7 @@ import com.gameconsole.launcher3ds.model.PlatformType
 import com.gameconsole.launcher3ds.model.SystemAppletType
 import com.gameconsole.launcher3ds.model.Theme3DS
 import com.gameconsole.launcher3ds.model.ThemeCatalog
+import com.gameconsole.launcher3ds.model.UpperDisplayMode
 import com.gameconsole.launcher3ds.model.VideoFilterType
 import java.io.File
 import java.text.SimpleDateFormat
@@ -237,7 +238,21 @@ class UpperScreenView @JvmOverloads constructor(
     /**
      * 是否在上屏展示官方透明 Logo (logo.png)，默认关闭
      */
-    var showUpperLogo: Boolean = false
+    /**
+     * 是否在上屏展示 3D 游戏包装盒 (Boxart 3D Case)
+     */
+    var showUpperBoxart: Boolean = true
+        set(value) {
+            if (field != value) {
+                field = value
+                invalidate()
+            }
+        }
+
+    /**
+     * 是否在上屏展示官方透明 Logo (logo.png)
+     */
+    var showUpperLogo: Boolean = true
         set(value) {
             if (field != value) {
                 field = value
@@ -977,8 +992,9 @@ class UpperScreenView @JvmOverloads constructor(
                 }
             }
 
-            // 3) 前景 3D 视差悬浮官方透明 Logo (media/<游戏名>/logo.png，若用户配置开启才渲染)
-            val logoBmp = if (showUpperLogo) resolveSlotLogo(item) else null
+            // 3) 前景 3D 视差悬浮官方透明 Logo (仅在开启卡盒且开启Logo的“双重豪华模式”下在卡盒上叠加)
+            val shouldDrawOverlayLogo = showUpperBoxart && showUpperLogo
+            val logoBmp = if (shouldDrawOverlayLogo) resolveSlotLogo(item) else null
             if (logoBmp != null && !currentBoxAbsRect.isEmpty) {
                 val maxLogoW = currentBoxAbsRect.width() * 0.92f
                 val maxLogoH = currentBoxAbsRect.height() * 0.36f
@@ -1829,25 +1845,52 @@ class UpperScreenView @JvmOverloads constructor(
                 currentVideoNativeHeight
             )
 
+            val hasLeftComponent = showUpperBoxart || showUpperLogo
             var screenH = stageH * 0.98f
             var screenW = screenH * screenAspect
-            var boxH: Float
-            var boxW: Float
+            var boxH = 0f
+            var boxW = 0f
+            var gapBetween = 0f
 
-            if (boxAspect < 1.05f) {
-                // 竖版或正方包装盒 (3DS、NDS、PSP、PS1、GB、FC 等)
-                boxH = stageH * 0.84f
-                boxW = boxH * boxAspect
+            if (showUpperBoxart) {
+                // 3D 卡盒模式 (或双重豪华模式)
+                if (boxAspect < 1.05f) {
+                    boxH = stageH * 0.84f
+                    boxW = boxH * boxAspect
+                } else {
+                    boxW = (stageH * 0.90f).coerceAtMost(w * 0.36f)
+                    boxH = (boxW / boxAspect).coerceAtMost(stageH * 0.80f)
+                    boxW = boxH * boxAspect
+                }
+                gapBetween = stageH * 0.035f
+            } else if (showUpperLogo) {
+                // 悬浮Logo旗舰模式：左侧以大尺寸高透 Logo 为主体 (若无 Logo 则优雅降级为简约卡盒)
+                val heroAspect = if (logoBmp != null) {
+                    (logoBmp.width.toFloat() / logoBmp.height.toFloat().coerceAtLeast(1f)).coerceIn(0.60f, 2.60f)
+                } else {
+                    boxAspect
+                }
+                if (heroAspect > 1.20f) {
+                    boxW = (stageH * 0.90f).coerceAtMost(w * 0.40f)
+                    boxH = (boxW / heroAspect).coerceIn(stageH * 0.35f, stageH * 0.70f)
+                    boxW = boxH * heroAspect
+                } else {
+                    boxH = stageH * 0.80f
+                    boxW = (boxH * heroAspect).coerceAtMost(w * 0.36f)
+                    boxH = boxW / heroAspect
+                }
+                gapBetween = stageH * 0.045f
             } else {
-                // 横版包装盒 (GBA、SFC、N64 等)
-                boxW = (stageH * 0.90f).coerceAtMost(w * 0.36f)
-                boxH = (boxW / boxAspect).coerceAtMost(stageH * 0.80f)
-                boxW = boxH * boxAspect
+                // 纯净大屏影院模式：左侧组件隐藏，右侧屏幕自动居中放大
+                boxW = 0f
+                boxH = 0f
+                gapBetween = 0f
+                screenH = stageH * 1.02f
+                screenW = (screenH * screenAspect).coerceAtMost(w * 0.86f)
+                screenH = screenW / screenAspect
             }
 
-            var gapBetween = stageH * 0.035f
             var totalStageW = boxW + gapBetween + screenW
-
             val maxStageW = w * 0.92f
             if (totalStageW > maxStageW) {
                 val scale = maxStageW / totalStageW
@@ -1862,17 +1905,26 @@ class UpperScreenView @JvmOverloads constructor(
             val cx = stageCenterX + tiltX * 0.4f
             val cy = stageCenterY + floatY
 
-            val boxCenterX = -totalStageW / 2f + boxW / 2f
-            val boxRect = RectF(boxCenterX - boxW / 2f, -boxH / 2f, boxCenterX + boxW / 2f, boxH / 2f)
-            val screenCenterX = totalStageW / 2f - screenW / 2f
-            val screenRect = RectF(screenCenterX - screenW / 2f, -screenH / 2f, screenCenterX + screenW / 2f, screenH / 2f)
+            val boxRect: RectF
+            val screenRect: RectF
 
-            currentBoxAbsRect.set(
-                cx + boxRect.left,
-                cy + boxRect.top,
-                cx + boxRect.right,
-                cy + boxRect.bottom
-            )
+            if (hasLeftComponent && boxW > 0f) {
+                val boxCenterX = -totalStageW / 2f + boxW / 2f
+                boxRect = RectF(boxCenterX - boxW / 2f, -boxH / 2f, boxCenterX + boxW / 2f, boxH / 2f)
+                val screenCenterX = totalStageW / 2f - screenW / 2f
+                screenRect = RectF(screenCenterX - screenW / 2f, -screenH / 2f, screenCenterX + screenW / 2f, screenH / 2f)
+                currentBoxAbsRect.set(
+                    cx + boxRect.left,
+                    cy + boxRect.top,
+                    cx + boxRect.right,
+                    cy + boxRect.bottom
+                )
+            } else {
+                boxRect = RectF()
+                screenRect = RectF(-screenW / 2f, -screenH / 2f, screenW / 2f, screenH / 2f)
+                currentBoxAbsRect.setEmpty()
+            }
+
             currentScreenAbsRect.set(
                 cx + screenRect.left,
                 cy + screenRect.top,
@@ -1899,8 +1951,8 @@ class UpperScreenView @JvmOverloads constructor(
             canvas.save()
             canvas.translate(cx, cy)
 
-            // 1. 左侧：支持 360° 自由旋转把玩与视差联动的 3D 实体游戏包装盒 (Boxart 3D Case)
-            if (boxBmp != null) {
+            // 1. 左侧：3D 卡盒或悬浮 Logo
+            if (showUpperBoxart && boxBmp != null) {
                 canvas.save()
 
                 val curRotY = (boxRotAngleY - 4.0f + totalTiltX * 0.45f)
@@ -1992,6 +2044,90 @@ class UpperScreenView @JvmOverloads constructor(
                 canvas.drawRect(faceRect, paint)
                 paint.shader = null
 
+                canvas.restore()
+            } else if (showUpperLogo && !boxRect.isEmpty) {
+                // 1. 左侧：高精度悬浮游戏透明 Logo (Floating Logo Hero)
+                canvas.save()
+                val curRotY = (boxRotAngleY * 0.45f + totalTiltX * 0.35f).coerceIn(-25f, 25f)
+                val curRotX = (boxRotAngleX * 0.45f + totalTiltY * 0.25f).coerceIn(-20f, 20f)
+                val floatHeroY = kotlin.math.sin((animPhase + 0.35f) * 1.35f) * 6f
+                canvas.rotate(curRotX * 0.35f, boxRect.centerX(), boxRect.centerY())
+
+                val heroCenterX = boxRect.centerX()
+                val heroCenterY = boxRect.centerY() + floatHeroY
+
+                val effectiveLogo = logoBmp ?: boxBmp
+                if (effectiveLogo != null) {
+                    val maxLW = boxRect.width() * 0.95f
+                    val maxLH = boxRect.height() * 0.95f
+                    val lAspect = effectiveLogo.width.toFloat().coerceAtLeast(1f) / effectiveLogo.height.toFloat().coerceAtLeast(1f)
+                    var drawLW = maxLW
+                    var drawLH = drawLW / lAspect
+                    if (drawLH > maxLH) {
+                        drawLH = maxLH
+                        drawLW = drawLH * lAspect
+                    }
+                    val heroDrawRect = RectF(
+                        heroCenterX - drawLW / 2f,
+                        heroCenterY - drawLH / 2f,
+                        heroCenterX + drawLW / 2f,
+                        heroCenterY + drawLH / 2f
+                    )
+
+                    // 1) 地面柔和透视椭圆阴影（随悬浮高度微调）
+                    paint.style = Paint.Style.FILL
+                    paint.color = Color.argb(65, 8, 14, 24)
+                    val shadowY = boxRect.bottom + 8f - floatHeroY * 0.3f
+                    val shadowW = drawLW * 0.75f
+                    canvas.drawOval(
+                        RectF(heroCenterX - shadowW / 2f, shadowY - 6f, heroCenterX + shadowW / 2f, shadowY + 6f),
+                        paint
+                    )
+
+                    // 2) 悬浮 Logo 背底轻柔环境光晕 (搭配游戏重音色)
+                    paint.shader = RadialGradient(
+                        heroCenterX,
+                        heroCenterY,
+                        maxOf(drawLW, drawLH) * 0.65f,
+                        intArrayOf(
+                            Color.argb(85, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
+                            Color.argb(30, 15, 23, 42),
+                            Color.TRANSPARENT
+                        ),
+                        floatArrayOf(0f, 0.55f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                    canvas.drawOval(
+                        RectF(heroDrawRect.left - 24f, heroDrawRect.top - 16f, heroDrawRect.right + 24f, heroDrawRect.bottom + 16f),
+                        paint
+                    )
+                    paint.shader = null
+
+                    if (logoBmp != null) {
+                        // 绘制官方透明游戏 Logo
+                        canvas.drawBitmap(logoBmp, null, heroDrawRect, bitmapPaint)
+
+                        // 微妙流光掠过 (增加顶级主机 UI 质感)
+                        val sheenProgress = ((animPhase * 0.6f) % 2.0f) - 0.5f
+                        val sheenX = heroDrawRect.left + heroDrawRect.width() * sheenProgress
+                        val sheenW = heroDrawRect.width() * 0.28f
+                        paint.shader = LinearGradient(
+                            sheenX - sheenW, heroDrawRect.top, sheenX + sheenW, heroDrawRect.bottom,
+                            intArrayOf(Color.TRANSPARENT, Color.argb(35, 255, 255, 255), Color.TRANSPARENT),
+                            null, Shader.TileMode.CLAMP
+                        )
+                        canvas.drawRect(heroDrawRect, paint)
+                        paint.shader = null
+                    } else if (boxBmp != null) {
+                        // 优雅降级：若该游戏暂无提取到透明 Logo，以极简圆角卡片形式精致呈现
+                        paint.color = Color.WHITE
+                        canvas.drawRoundRect(RectF(heroDrawRect.left - 2f, heroDrawRect.top - 2f, heroDrawRect.right + 2f, heroDrawRect.bottom + 2f), 12f, 12f, paint)
+                        clipPath.reset()
+                        clipPath.addRoundRect(heroDrawRect, 10f, 10f, Path.Direction.CW)
+                        canvas.clipPath(clipPath)
+                        canvas.drawBitmap(boxBmp, null, heroDrawRect, bitmapPaint)
+                    }
+                }
                 canvas.restore()
             }
 
@@ -2851,6 +2987,20 @@ class UpperScreenView @JvmOverloads constructor(
                     if (item.logoPath.isNotBlank()) {
                         val f = File(item.logoPath)
                         if (f.exists()) bmp = BitmapFactory.decodeFile(f.absolutePath)
+                    }
+                    if (bmp == null && item.romPath.isNotBlank()) {
+                        val romF = File(item.romPath)
+                        val parent = romF.parentFile
+                        if (parent != null && parent.exists()) {
+                            val candidateNames = listOf("logo.png", "wheel.png", "marquee.png", "title.png", "banner.png", "logo.jpg")
+                            for (name in candidateNames) {
+                                val cand = File(parent, name)
+                                if (cand.exists() && cand.length() > 0) {
+                                    bmp = BitmapFactory.decodeFile(cand.absolutePath)
+                                    break
+                                }
+                            }
+                        }
                     }
                     if (bmp == null && (item.id == "showcase_3ds_mario_3d_land" || item.title.contains("3D大陆", ignoreCase = true))) {
                         bmp = decodeAssetBitmap("3ds_art/mario_3d_land_logo.png")

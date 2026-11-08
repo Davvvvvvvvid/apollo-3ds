@@ -28,6 +28,7 @@ import com.gameconsole.launcher3ds.model.ThemeCatalog
 import com.gameconsole.launcher3ds.model.ScanStorageScope
 import com.gameconsole.launcher3ds.telemetry.StartupProfiler
 import com.gameconsole.launcher3ds.emulator.EmulatorLauncher
+import com.gameconsole.launcher3ds.model.UpperDisplayMode
 import com.gameconsole.launcher3ds.model.VideoFilterType
 import com.gameconsole.launcher3ds.audio.SoundEffectEngine
 import java.io.File
@@ -75,6 +76,8 @@ class LowerScreenView @JvmOverloads constructor(
         fun onAutoRandomIntervalChanged(newIntervalSec: Int)
         fun onAutoRandomIntervalDialogRequested()
         fun onToggleUpperLogoRequested()
+        fun onToggleUpperBoxartRequested()
+        fun onCycleUpperDisplayModeRequested()
         fun onPlatformToggled(platformId: String)
         fun onPresetOnly3dsRequested()
         fun onPresetHandheldsRequested()
@@ -180,7 +183,13 @@ class LowerScreenView @JvmOverloads constructor(
             invalidate()
         }
 
-    var showUpperLogo: Boolean = false
+    var showUpperBoxart: Boolean = true
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    var showUpperLogo: Boolean = true
         set(value) {
             field = value
             invalidate()
@@ -2493,16 +2502,17 @@ class LowerScreenView @JvmOverloads constructor(
                             textPaint
                         )
                     } else if (idx == 6) {
-                        // 卡片 6：上屏透明游戏 Logo (logo.png) 开关
-                        val accent = if (showUpperLogo) Color.parseColor("#10B981") else Color.parseColor("#64748B")
-                        draw3dsSculptedDockButton(canvas, cr, 18f, isPrimary = isFocused || showUpperLogo, accentOverride = accent)
+                        // 卡片 6：上屏视觉模式 (4 种方案一键循环切换：✨ 悬浮Logo -> 📦 3D卡盒 -> 💎 双重豪华 -> 🎬 纯净大屏)
+                        val curMode = UpperDisplayMode.fromBooleans(showUpperBoxart, showUpperLogo)
+                        val accent = Color.parseColor(curMode.colorHex)
+                        draw3dsSculptedDockButton(canvas, cr, 18f, isPrimary = isFocused || showUpperBoxart || showUpperLogo, accentOverride = accent)
                         textPaint.color = accent
-                        textPaint.textSize = (cardH * 0.22f).coerceIn(16f, 28f)
+                        textPaint.textSize = (cardH * 0.21f).coerceIn(16f, 28f)
                         textPaint.textAlign = Paint.Align.CENTER
-                        canvas.drawText(if (showUpperLogo) "🏷️ 游戏Logo：显示" else "🏷️ 游戏Logo：隐藏", cr.centerX(), cr.centerY() - cardH * 0.08f, textPaint)
+                        canvas.drawText(curMode.title, cr.centerX(), cr.centerY() - cardH * 0.08f, textPaint)
                         textPaint.color = currentTheme.textSecondaryColor
                         textPaint.textSize = (cardH * 0.12f).coerceIn(11f, 16f)
-                        canvas.drawText(if (showUpperLogo) "上屏展示官方透明Logo" else "清爽无遮挡（默认隐藏）", cr.centerX(), cr.centerY() + cardH * 0.24f, textPaint)
+                        canvas.drawText("点击切换方案 · " + curMode.shortLabel, cr.centerX(), cr.centerY() + cardH * 0.24f, textPaint)
                     } else {
                         // 卡片 7：音效音量调节设置 (默认 100%，点击依次切换 100% -> 75% -> 50% -> 25% -> 静音)
                         val isMuted = (sfxVolumePercent == 0 || !isSfxEnabled)
@@ -3084,8 +3094,7 @@ class LowerScreenView @JvmOverloads constructor(
                 when {
                     idx in themes.indices -> listener?.onThemeSelectedFromPanel(themes[idx])
                     idx == 6 -> {
-                        showUpperLogo = !showUpperLogo
-                        listener?.onToggleUpperLogoRequested()
+                        listener?.onCycleUpperDisplayModeRequested()
                     }
                     idx == 7 -> listener?.onQuickToggleSfxRequested()
                 }

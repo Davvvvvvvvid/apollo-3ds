@@ -14,6 +14,7 @@ import com.gameconsole.launcher3ds.model.GridSlotItem
 import com.gameconsole.launcher3ds.model.NotificationItem
 import com.gameconsole.launcher3ds.model.PlatformType
 import com.gameconsole.launcher3ds.model.ScanStorageScope
+import com.gameconsole.launcher3ds.model.UpperDisplayMode
 import com.gameconsole.launcher3ds.parser.RomHeaderParser
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -522,6 +523,7 @@ class LauncherRepository(private val context: Context) {
         private const val KEY_LAST_MOUNTED_MEDIA_DIR = "last_mounted_media_dir"
         private const val KEY_VIDEO_FILTER_ID = "upper_video_filter_id"
         private const val KEY_AUTO_RANDOM_INTERVAL_SEC = "auto_random_interval_sec"
+        private const val KEY_SHOW_UPPER_BOXART = "show_upper_boxart_v1"
         private const val KEY_SHOW_UPPER_LOGO = "show_upper_logo_v2"
         private const val KEY_ENABLED_PLATFORMS = "enabled_platforms_v1"
         private const val KEY_PLATFORM_EMULATORS = "platform_emulators_map_v1"
@@ -1351,9 +1353,44 @@ class LauncherRepository(private val context: Context) {
         }
     }
 
+    var showUpperBoxart: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_UPPER_BOXART, true)
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_UPPER_BOXART, value).apply()
+
     var showUpperLogo: Boolean
-        get() = prefs.getBoolean(KEY_SHOW_UPPER_LOGO, false) // 默认关闭 Logo 显示
+        get() = prefs.getBoolean(KEY_SHOW_UPPER_LOGO, true) // 默认开启 Logo 显示
         set(value) = prefs.edit().putBoolean(KEY_SHOW_UPPER_LOGO, value).apply()
+
+    var upperDisplayMode: UpperDisplayMode
+        get() = UpperDisplayMode.fromBooleans(showUpperBoxart, showUpperLogo)
+        set(mode) {
+            when (mode) {
+                UpperDisplayMode.LOGO_HERO -> {
+                    showUpperBoxart = false
+                    showUpperLogo = true
+                }
+                UpperDisplayMode.BOXART_3D -> {
+                    showUpperBoxart = true
+                    showUpperLogo = false
+                }
+                UpperDisplayMode.DUAL_HYBRID -> {
+                    showUpperBoxart = true
+                    showUpperLogo = true
+                }
+                UpperDisplayMode.CINEMA_PURE -> {
+                    showUpperBoxart = false
+                    showUpperLogo = false
+                }
+            }
+        }
+
+    fun cycleNextUpperDisplayMode(): UpperDisplayMode {
+        val cur = upperDisplayMode
+        val allModes = UpperDisplayMode.entries
+        val next = allModes[(cur.ordinal + 1) % allModes.size]
+        upperDisplayMode = next
+        return next
+    }
 
     var subscreenCompanionEnabled: Boolean
         get() = prefs.getBoolean(KEY_SUBSCREEN_COMPANION_ENABLED, true)
