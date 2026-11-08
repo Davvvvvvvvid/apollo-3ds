@@ -826,7 +826,7 @@ class LowerScreenView @JvmOverloads constructor(
      */
     private val applets = arrayOf(
         SystemAppletType.MIIVERSE,
-        SystemAppletType.VIDEO_FILTER_SETTINGS
+        SystemAppletType.GAME_LIBRARY
     )
 
     private val appletAssetNames = arrayOf(
@@ -1051,13 +1051,13 @@ class LowerScreenView @JvmOverloads constructor(
         val sideMargin = 16f
         val smallBtnW = btnSize * 0.96f
 
-        // 3. 顶栏所有图标从最左侧边框平行等距分布到最右侧边框 (共有 9 枚 3DS 独立大图标，保证两边边上都有，两端对齐全屏均分)
-        val totalIcons = 9
+        // 3. 顶栏所有图标从最左侧边框平行等距分布到最右侧边框 (精简为 7 枚 3DS 独立大图标，视觉宽敞通透)
+        val totalIcons = 7
         val availBarW = w - sideMargin * 2f
-        val gap = ((availBarW - smallBtnW * totalIcons) / (totalIcons - 1).coerceAtLeast(1)).coerceAtLeast(4f)
+        val gap = ((availBarW - smallBtnW * totalIcons) / (totalIcons - 1).coerceAtLeast(1)).coerceAtLeast(6f)
         val leftStart = sideMargin
 
-        // 0: HOME 菜单设置
+        // 0: HOME 菜单与个性化设置 (左上角第 1 个图标，方案 A：专注主题、声音、副屏伴侣与桌面个性化)
         var curLeft = leftStart
         homeSettingsRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         val homeBmp = loadAssetIcon("3ds_art/applet_home_settings.png")
@@ -1083,25 +1083,7 @@ class LowerScreenView @JvmOverloads constructor(
         drawBeveledButton(canvas, autoRandomBtnRect, autoRandomFill, autoRandomBorder, 14f, isPrimary = isAutoRandomPlaying)
         drawAutoRandomButtonSymbol(canvas, autoRandomBtnRect, isAutoRandomPlaying)
 
-        // 3: 上下屏互换 (替换原版游戏笔记图标，纯正 3DS 双屏互换专属立体图标，仅按钮精准切换)
-        curLeft += smallBtnW + gap
-        swapScreensBtnRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
-        val swapFill = if (isSwapScreensEnabled) Color.parseColor("#CFFAFE") else currentTheme.slotFillColor
-        val swapBorder = if (isSwapScreensEnabled) Color.parseColor("#06B6D4") else currentTheme.slotBorderColor
-        drawBeveledButton(canvas, swapScreensBtnRect, swapFill, swapBorder, 14f, isPrimary = isSwapScreensEnabled)
-        drawSwapScreensIcon(canvas, swapScreensBtnRect, isSwapScreensEnabled)
-
-        // 4: 游戏介绍与详情手册 (替换原版 3DS 好友列表图标位置，独立 3DS 游戏详情与手册图标)
-        curLeft += smallBtnW + gap
-        gameDescriptionBtnRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
-        gameLibraryBtnRect.set(gameDescriptionBtnRect)
-        val isDescActive = isGameDescriptionOpen
-        val descFill = if (isDescActive) Color.parseColor("#FEF3C7") else currentTheme.slotFillColor
-        val descBorder = if (isDescActive) Color.parseColor("#F59E0B") else currentTheme.slotBorderColor
-        drawBeveledButton(canvas, gameDescriptionBtnRect, descFill, descBorder, 14f, isPrimary = isDescActive)
-        drawGameDescriptionIcon(canvas, gameDescriptionBtnRect, isDescActive)
-
-        // 5: 桌面徽章屋 (纯正 3DS 图标，无文字)
+        // 3: 桌面徽章屋 (纯正 3DS 徽章)
         curLeft += smallBtnW + gap
         appletRects[0].set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         drawBeveledButton(canvas, appletRects[0], currentTheme.slotFillColor, currentTheme.slotBorderColor, 14f)
@@ -1111,51 +1093,47 @@ class LowerScreenView @JvmOverloads constructor(
             canvas.drawBitmap(badgeBmp, null, RectF(curLeft + pad, padY + pad, curLeft + smallBtnW - pad, barH - padY - pad), bitmapPaint)
         }
 
-        // 6: 滤镜与设置 (专属 3DS 独立滤镜图标，无文字)
+        // 4: 游戏库与模拟器系统设置 (倒数第 3 个图标，方案 A：专注 ROM 路径、媒体库挂载与模拟器内核设置)
         curLeft += smallBtnW + gap
         appletRects[1].set(curLeft, padY, curLeft + smallBtnW, barH - padY)
-        val isFilterActive = (isSettingsPanelOpen || currentVideoFilter != VideoFilterType.NONE)
-        val filterFill = if (isFilterActive) blendColor(currentTheme.slotFillColor, currentVideoFilter.accentColor, 0.16f) else currentTheme.slotFillColor
-        val filterBorder = if (isFilterActive) currentVideoFilter.accentColor else currentTheme.slotBorderColor
-        drawBeveledButton(canvas, appletRects[1], filterFill, filterBorder, 14f, isPrimary = isFilterActive)
-        drawVideoFilterSettingsIcon(canvas, RectF(curLeft + smallBtnW * 0.12f, padY + smallBtnW * 0.12f, curLeft + smallBtnW * 0.88f, barH - padY - smallBtnW * 0.12f))
+        val isAdvActive = isSettingsPanelOpen && (settingsSubPanel == SettingsSubPanel.ADVANCED_SETTINGS || settingsTabIndex == 3)
+        val advFill = if (isAdvActive) Color.parseColor("#FEF3C7") else currentTheme.slotFillColor
+        val advBorder = if (isAdvActive) Color.parseColor("#F59E0B") else currentTheme.slotBorderColor
+        drawBeveledButton(canvas, appletRects[1], advFill, advBorder, 14f, isPrimary = isAdvActive)
+        drawGameLibrarySettingsIcon(canvas, RectF(curLeft + smallBtnW * 0.12f, padY + smallBtnW * 0.12f, curLeft + smallBtnW * 0.88f, barH - padY - smallBtnW * 0.12f))
 
-        // 7: [-] 缩小网格按钮
+        // 5: [-] 缩小网格按钮 (倒数第 2 个图标)
         curLeft += smallBtnW + gap
         zoomOutRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         drawBeveledButton(canvas, zoomOutRect, currentTheme.slotFillColor, currentTheme.slotBorderColor, 14f)
         drawZoomButtonSymbol(canvas, zoomOutRect, isZoomIn = false)
 
-        // 8: [+] 放大网格按钮
+        // 6: [+] 放大网格按钮 (倒数第 1 个图标)
         curLeft += smallBtnW + gap
         zoomInRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         drawBeveledButton(canvas, zoomInRect, currentTheme.slotFillColor, currentTheme.slotBorderColor, 14f)
         drawZoomButtonSymbol(canvas, zoomInRect, isZoomIn = true)
 
-        // 4. 当用户按 L2 / R2 键在顶栏 9 枚图标间切换时，绘制 3DS 四角发光选中框与悬浮功能名牌
-        if (selectedTopIconIndex in 0..8) {
+        // 4. 当用户按 L2 / R2 键在顶栏 7 枚图标间切换时，绘制 3DS 四角发光选中框与悬浮功能名牌
+        if (selectedTopIconIndex in 0..6) {
             val targetRect = when (selectedTopIconIndex) {
                 0 -> homeSettingsRect
                 1 -> videoAudioBtnRect
                 2 -> autoRandomBtnRect
-                3 -> swapScreensBtnRect
-                4 -> gameDescriptionBtnRect
-                5 -> appletRects[0]
-                6 -> appletRects[1]
-                7 -> zoomOutRect
+                3 -> appletRects[0]
+                4 -> appletRects[1]
+                5 -> zoomOutRect
                 else -> zoomInRect
             }
             draw3dsCornerCursor(canvas, targetRect)
 
             val topLabel = when (selectedTopIconIndex) {
-                0 -> "⚙ HOME菜单与设置 (按A打开)"
+                0 -> "🏠 HOME菜单·主题与个性化设置 (按A打开)"
                 1 -> if (isVideoAudioEnabled) "🔊 关闭视频原声·恢复背景音乐 (按A切换)" else "▶ 暂停背景音乐·播放视频原声 (按A切换)"
                 2 -> if (isAutoRandomPlaying) "🎲 自动轮播游戏预览中 [每${autoRandomIntervalSec}秒] (按A停止)" else "🎲 开启自动随机轮播 [每${autoRandomIntervalSec}秒] (按A开启)"
-                3 -> if (isSwapScreensEnabled) "⇅ 互换上下屏显示 [当前:已互换模式] (按A恢复标准)" else "⇅ 互换上下屏显示 [当前:标准模式] (按A互换)"
-                4 -> "📖 游戏介绍与详情手册 (按A打开/关闭)"
-                5 -> "🏅 桌面徽章屋 (按A打开)"
-                6 -> "🎬 上屏视频滤镜与系统设置 [当前:${currentVideoFilter.displayName}] (按A打开)"
-                7 -> "➖ 缩小游戏图标 (按A执行)"
+                3 -> "🏅 桌面徽章屋 (按A打开)"
+                4 -> "⚙ 游戏库与模拟器系统设置 (按A打开)"
+                5 -> "➖ 缩小游戏图标 (按A执行)"
                 else -> "➕ 放大游戏图标 (按A执行)"
             }
             val tipText = "L2 ◀  $topLabel  ▶ R2"
@@ -1287,6 +1265,58 @@ class LowerScreenView @JvmOverloads constructor(
     /**
      * 绘制 3DS 拟物风格「画面滤镜与设置」专属立体图标（三原色滤镜光环 + 3DS 精密齿轮徽标）
      */
+        /**
+     * 绘制倒数第 3 个图标「游戏库与模拟器高级设置」立体机械齿轮图标
+     */
+    private fun drawGameLibrarySettingsIcon(canvas: Canvas, r: RectF) {
+        val cx = r.centerX()
+        val cy = r.centerY()
+        val rad = r.width() * 0.26f
+
+        paint.style = Paint.Style.FILL
+        paint.shader = LinearGradient(
+            r.left, r.top, r.right, r.bottom,
+            Color.parseColor("#334155"),
+            Color.parseColor("#1E293B"),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRoundRect(r, rad, rad, paint)
+        paint.shader = null
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.8f
+        paint.color = Color.parseColor("#94A3B8")
+        canvas.drawRoundRect(r, rad, rad, paint)
+        paint.style = Paint.Style.FILL
+
+        // 绘制高精 3DS 机械齿轮 (8 个精密轮齿)
+        val outerR = r.width() * 0.28f
+        val innerR = r.width() * 0.18f
+        paint.color = Color.parseColor("#F8FAFC")
+        val toothW = r.width() * 0.08f
+        val toothH = r.width() * 0.09f
+        for (i in 0 until 8) {
+            val angle = i * 45f * Math.PI.toFloat() / 180f
+            val tx = cx + Math.cos(angle.toDouble()).toFloat() * (outerR + toothH * 0.2f)
+            val ty = cy + Math.sin(angle.toDouble()).toFloat() * (outerR + toothH * 0.2f)
+            canvas.save()
+            canvas.rotate(i * 45f, tx, ty)
+            canvas.drawRoundRect(RectF(tx - toothW / 2f, ty - toothH / 2f, tx + toothW / 2f, ty + toothH / 2f), 2f, 2f, paint)
+            canvas.restore()
+        }
+
+        // 齿轮外环圆盘
+        canvas.drawCircle(cx, cy, outerR, paint)
+        // 齿轮内凹槽
+        paint.color = Color.parseColor("#1E293B")
+        canvas.drawCircle(cx, cy, innerR, paint)
+        // 中心高亮金/青轴心
+        paint.color = Color.parseColor("#F59E0B")
+        canvas.drawCircle(cx, cy, innerR * 0.52f, paint)
+        paint.color = Color.WHITE
+        canvas.drawCircle(cx, cy, innerR * 0.22f, paint)
+    }
+
     private fun drawVideoFilterSettingsIcon(canvas: Canvas, r: RectF) {
         val cx = r.centerX()
         val cy = r.centerY()
@@ -5581,14 +5611,7 @@ class LowerScreenView @JvmOverloads constructor(
         if (homeSettingsRect.contains(x, y)) {
             selectedTopIconIndex = -1
             SoundEffectEngine.playSelectApplet()
-            openSettingsPanel(initialTab = 3)
-            settingsSubPanel = SettingsSubPanel.ADVANCED_SETTINGS
-            return
-        }
-
-        if (gameDescriptionBtnRect.contains(x, y)) {
-            selectedTopIconIndex = -1
-            toggleGameDescription()
+            openSettingsPanel(initialTab = 1) // 方案 A：第 1 个图标负责 HOME 桌面、主题与个性化
             return
         }
 
@@ -5602,11 +5625,6 @@ class LowerScreenView @JvmOverloads constructor(
             selectedTopIconIndex = -1
             isAutoRandomPlaying = !isAutoRandomPlaying
             listener?.onAutoRandomToggled()
-            return
-        }
-        if (swapScreensBtnRect.contains(x, y)) {
-            selectedTopIconIndex = -1
-            listener?.onQuickSwapScreensRequested()
             return
         }
 
@@ -5787,7 +5805,7 @@ class LowerScreenView @JvmOverloads constructor(
      * 按 L2 / R2 键切换下屏顶部的 9 个功能图标（0=HOME设置, 1=游戏库与模拟器平台, 2=视频原声播放开关, 3=自动随机轮播, 4=游戏笔记, 5=桌面徽章, 6=滤镜·设置, 7=缩小网格, 8=放大网格）
      */
     fun stepTopBarIcon(delta: Int) {
-        val totalTopIcons = 9
+        val totalTopIcons = 7
         selectedTopIconIndex = if (selectedTopIconIndex < 0) {
             if (delta >= 0) 0 else totalTopIcons - 1
         } else {
@@ -5797,10 +5815,8 @@ class LowerScreenView @JvmOverloads constructor(
             0 -> SystemAppletType.HOME_SETTINGS
             1 -> SystemAppletType.NONE
             2 -> SystemAppletType.NONE
-            3 -> SystemAppletType.NONE
-            4 -> SystemAppletType.GAME_DESCRIPTION
-            5 -> applets[0]
-            6 -> applets[1]
+            3 -> applets[0]
+            4 -> applets[1]
             else -> SystemAppletType.NONE
         }
         listener?.onTopIconFocused(selectedTopIconIndex, previewApplet)
@@ -5811,23 +5827,21 @@ class LowerScreenView @JvmOverloads constructor(
      * 当焦点在顶栏图标上时按 A 键触发对应功能
      */
     fun activateFocusedTopIcon(): Boolean {
-        if (selectedTopIconIndex !in 0..8) return false
+        if (selectedTopIconIndex !in 0..6) return false
         when (selectedTopIconIndex) {
-            0 -> openSettingsPanel(initialTab = 1)
+            0 -> openSettingsPanel(initialTab = 1) // 方案 A：第 1 个图标负责 HOME 桌面、主题与个性化
             1 -> listener?.onVideoAudioToggleRequested()
             2 -> {
                 isAutoRandomPlaying = !isAutoRandomPlaying
                 listener?.onAutoRandomToggled()
             }
-            3 -> listener?.onQuickSwapScreensRequested()
-            4 -> toggleGameDescription()
-            5 -> listener?.onAppletClicked(applets[0])
-            6 -> listener?.onAppletClicked(applets[1])
-            7 -> if (gridRows < 6) {
+            3 -> listener?.onAppletClicked(applets[0])
+            4 -> listener?.onAppletClicked(applets[1]) // 方案 A：倒数第 3 个图标负责游戏库与模拟器系统设置
+            5 -> if (gridRows < 6) {
                 gridRows += 1
                 listener?.onZoomChanged(gridRows, zoomIn = false)
             }
-            8 -> if (gridRows > 1) {
+            6 -> if (gridRows > 1) {
                 gridRows -= 1
                 listener?.onZoomChanged(gridRows, zoomIn = true)
             }

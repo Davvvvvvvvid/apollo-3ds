@@ -1458,16 +1458,17 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                 lowerScreenView.toggleGameDescription()
             }
             SystemAppletType.HOME_SETTINGS -> {
-                // 不再使用弹窗覆盖，直接在副屏原版 3DS 内嵌面板中展开「存储路径与系统高级设置」！
-                lowerScreenView.openSettingsPanel(initialTab = 3)
-                lowerScreenView.settingsSubPanel = LowerScreenView.SettingsSubPanel.ADVANCED_SETTINGS
+                // 方案 A：第 1 个图标负责 HOME 菜单、主题与个性化设置
+                lowerScreenView.openSettingsPanel(initialTab = 1)
             }
             SystemAppletType.VIDEO_FILTER_SETTINGS -> {
                 // 直接在下屏原版 3DS 内嵌面板中展开「上屏视频滤镜」配置页！
                 lowerScreenView.openSettingsPanel(initialTab = 0)
             }
             SystemAppletType.GAME_LIBRARY -> {
-                lowerScreenView.openSettingsPanel(initialTab = 3) // 游戏库导入与管理，直接在副屏中间操作
+                // 方案 A：倒数第 3 个图标负责游戏库与模拟器高级系统设置
+                lowerScreenView.openSettingsPanel(initialTab = 3)
+                lowerScreenView.settingsSubPanel = LowerScreenView.SettingsSubPanel.ADVANCED_SETTINGS
             }
             SystemAppletType.GAME_NOTES -> showGameNotesDialog()
             SystemAppletType.FRIEND_LIST -> showFriendListDialog()
