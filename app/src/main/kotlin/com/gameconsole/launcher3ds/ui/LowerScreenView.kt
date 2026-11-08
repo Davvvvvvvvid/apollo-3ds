@@ -2180,24 +2180,33 @@ class LowerScreenView @JvmOverloads constructor(
         radius: Float,
         isPrimary: Boolean,
         accentOverride: Int = currentTheme.cursorMainColor,
-        drawOutline: Boolean = true
+        drawOutline: Boolean = true,
+        isSolid: Boolean = false
     ) {
         // 1. 底部投影
         paint.style = Paint.Style.FILL
-        paint.color = Color.argb(46, 8, 20, 38)
+        paint.color = if (isSolid) Color.argb(65, 0, 0, 0) else Color.argb(46, 8, 20, 38)
         canvas.drawRoundRect(RectF(r.left, r.top + 3.5f, r.right, r.bottom + 3.5f), radius, radius, paint)
 
         // 2. 实体按键底部立体厚唇边 (3D Bottom Lip)
-        paint.color = if (isPrimary) {
+        paint.color = if (isSolid) {
+            blendColor(accentOverride, Color.BLACK, 0.28f)
+        } else if (isPrimary) {
             blendColor(accentOverride, Color.BLACK, 0.15f)
         } else {
             blendColor(currentTheme.slotBorderColor, Color.BLACK, 0.12f)
         }
         canvas.drawRoundRect(RectF(r.left, r.top + 2f, r.right, r.bottom + 2f), radius, radius, paint)
 
-        // 3. 丝滑全高垂直渐变
-        val topColor = Color.WHITE
-        val bottomColor = if (isPrimary) {
+        // 3. 丝滑全高垂直渐变 (如果是实心强调按钮，采用明亮高饱和渐变，确保白色文字晶莹剔透)
+        val topColor = if (isSolid) {
+            blendColor(accentOverride, Color.WHITE, 0.28f)
+        } else {
+            Color.WHITE
+        }
+        val bottomColor = if (isSolid) {
+            blendColor(accentOverride, Color.BLACK, 0.12f)
+        } else if (isPrimary) {
             blendColor(Color.WHITE, accentOverride, 0.20f)
         } else {
             blendColor(Color.WHITE, currentTheme.bottomBarButtonColor, 0.65f)
@@ -2215,7 +2224,7 @@ class LowerScreenView @JvmOverloads constructor(
             // 4. 内侧瓷白高光环
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 1.6f
-            paint.color = Color.argb(200, 255, 255, 255)
+            paint.color = if (isSolid) Color.argb(130, 255, 255, 255) else Color.argb(200, 255, 255, 255)
             canvas.drawRoundRect(
                 RectF(r.left + 1.8f, r.top + 1.8f, r.right - 1.8f, r.bottom - 1.8f),
                 (radius - 1.5f).coerceAtLeast(4f),
@@ -2224,8 +2233,8 @@ class LowerScreenView @JvmOverloads constructor(
             )
 
             // 5. 外框立体描边
-            paint.strokeWidth = if (isPrimary) 2.2f else 1.2f
-            paint.color = if (isPrimary) accentOverride else currentTheme.slotBorderColor
+            paint.strokeWidth = if (isSolid || isPrimary) 2.2f else 1.2f
+            paint.color = if (isSolid) blendColor(accentOverride, Color.BLACK, 0.18f) else if (isPrimary) accentOverride else currentTheme.slotBorderColor
             canvas.drawRoundRect(r, radius, radius, paint)
             paint.style = Paint.Style.FILL
         }
@@ -3148,22 +3157,22 @@ class LowerScreenView @JvmOverloads constructor(
         val btnBottom = h - 7f
         val btnRadius = (btnBottom - btnTop) * 0.48f
 
-        // 底部居中宽幅拟真 3DS 立体返回键
-        val btnW = (w * 0.46f).coerceIn(240f, 440f)
+        // 底部居中宽幅拟真 3DS 立体返回键 (4.5寸 960x720 屏幕大字高对比呈现)
+        val btnW = (w * 0.48f).coerceIn(260f, 460f)
         subPanelBackBtnRect.set(w / 2f - btnW / 2f, btnTop, w / 2f + btnW / 2f, btnBottom)
 
         draw3dsSculptedDockButton(
             canvas = canvas,
             r = subPanelBackBtnRect,
             radius = btnRadius,
-            isPrimary = true,
+            isPrimary = false,
             accentOverride = currentTheme.cursorMainColor
         )
 
         textPaint.typeface = apolloMediumTypeface
         textPaint.textAlign = Paint.Align.CENTER
         textPaint.color = currentTheme.textPrimaryColor
-        textPaint.textSize = (subPanelBackBtnRect.height() * 0.44f).coerceIn(16f, 22f)
+        textPaint.textSize = (subPanelBackBtnRect.height() * 0.46f).coerceIn(19f, 23f)
         canvas.drawText(
             backLabel,
             subPanelBackBtnRect.centerX(),
@@ -3319,48 +3328,43 @@ class LowerScreenView @JvmOverloads constructor(
         h: Float,
         bottomBarH: Float
     ) {
-        val headerH = 46f
+        val headerH = 48f
         val headerTop = innerPanel.top + 6f
         val contentLeft = innerPanel.left + 14f
         val contentRight = innerPanel.right - 14f
         val contentW = (contentRight - contentLeft).coerceAtLeast(100f)
 
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 25f
+        textPaint.textSize = 26f
         textPaint.color = currentTheme.cursorMainColor
         textPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("🏷️ 系列与游戏类别选择 & 管理", contentLeft, headerTop + 32f, textPaint)
+        canvas.drawText("🏷️ 系列与游戏类别选择 & 管理", contentLeft, headerTop + 33f, textPaint)
 
-        // 右上角：新建分类/系列
-        val pillW = 200f
-        val pillH = 40f
-        catMgrAddBtnRect.set(contentRight - pillW, headerTop + 4f, contentRight, headerTop + 4f + pillH)
+        // 右上角：新建分类/系列 (实心按钮 + 纯白高对比文字)
+        val pillW = 210f
+        val pillH = 42f
+        catMgrAddBtnRect.set(contentRight - pillW, headerTop + 3f, contentRight, headerTop + 3f + pillH)
         draw3dsSculptedDockButton(
             canvas = canvas,
             r = catMgrAddBtnRect,
             radius = pillH / 2f,
             isPrimary = true,
-            accentOverride = Color.parseColor("#10B981")
+            accentOverride = Color.parseColor("#10B981"),
+            isSolid = true
         )
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 16f
+        textPaint.textSize = 19f
         textPaint.color = Color.WHITE
         textPaint.textAlign = Paint.Align.CENTER
         canvas.drawText("➕ 新建系列/分类", catMgrAddBtnRect.centerX(), catMgrAddBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
-        val descY = headerTop + headerH + 16f
-        textPaint.typeface = apolloRegularTypeface
-        textPaint.textSize = 16f
-        textPaint.color = currentTheme.textSecondaryColor
-        textPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("点击卡片立即切换主屏分类；点击「🎮 管理游戏」增删收录游戏：", innerPanel.centerX(), descY, textPaint)
-
-        val contentTop = descY + 12f
+        // 移除冗余说明副标题，直接紧凑展示卡片列表
+        val contentTop = headerTop + headerH + 8f
         val dockTop = h - bottomBarH
         val contentBottom = innerPanel.bottom - 12f
         categoryContentArea.set(contentLeft, contentTop, contentRight, contentBottom)
 
-        val cardH = 76f
+        val cardH = 80f
         val cardGap = 8f
         val totalH = categories.size * (cardH + cardGap) + 16f
         maxCategoryScrollY = (totalH - categoryContentArea.height()).coerceAtLeast(0f)
@@ -3403,38 +3407,38 @@ class LowerScreenView @JvmOverloads constructor(
                     drawOutline = true
                 )
 
-                // 标题（大字号 22f）
+                // 标题（4.5寸 960x720 屏幕清晰大字号 25f）
                 textPaint.typeface = apolloMediumTypeface
-                textPaint.textSize = 22f
+                textPaint.textSize = 25f
                 textPaint.color = currentTheme.textPrimaryColor
                 textPaint.textAlign = Paint.Align.LEFT
                 val titleX = r.left + 16f
-                val titleY = r.centerY() - 6f
+                val titleY = r.centerY() - 7f
                 canvas.drawText("${cat.badgeSymbol} ${cat.displayName}", titleX, titleY, textPaint)
 
-                // 副标题（字号 15.5f）
+                // 副标题（字号 18f，清晰深色字体，去除冗余的点击卡片提示）
                 val tagStr = if (isAll) "✦ 根目录全部" else if (cat.isSeries) "🎮 IP系列" else "🕹️ 游戏类型"
                 val gameCount = categoryGamesCountCache[cat.id] ?: 0
-                val subStr = "$tagStr · 已收录 $gameCount 款游戏 · (点击卡片切换主屏)"
+                val subStr = "$tagStr · 已收录 $gameCount 款游戏"
                 textPaint.typeface = apolloRegularTypeface
-                textPaint.textSize = 15.5f
-                textPaint.color = currentTheme.textSecondaryColor
-                canvas.drawText(subStr, titleX, r.centerY() + 18f, textPaint)
+                textPaint.textSize = 18f
+                textPaint.color = Color.parseColor("#475569")
+                canvas.drawText(subStr, titleX, r.centerY() + 19f, textPaint)
 
                 if (!isAll) {
-                    val btnH = 44f
+                    val btnH = 46f
                     val btnTop = r.centerY() - btnH / 2f
                     val btnBottom = r.centerY() + btnH / 2f
                     var rx = r.right - 12f
 
                     if (!cat.isBuiltIn) {
                         val isDelConfirm = (pendingDeleteCategoryId == cat.id)
-                        val delW = if (isDelConfirm) 96f else 46f
+                        val delW = if (isDelConfirm) 105f else 48f
                         val delRect = RectF(rx - delW, btnTop, rx, btnBottom)
                         catDeleteBtnRects.add(delRect)
-                        draw3dsSculptedDockButton(canvas, delRect, 10f, isPrimary = isDelConfirm, accentOverride = Color.parseColor("#EF4444"))
+                        draw3dsSculptedDockButton(canvas, delRect, 10f, isPrimary = isDelConfirm, accentOverride = Color.parseColor("#EF4444"), isSolid = isDelConfirm)
                         textPaint.typeface = apolloMediumTypeface
-                        textPaint.textSize = if (isDelConfirm) 14.5f else 17f
+                        textPaint.textSize = if (isDelConfirm) 16f else 19f
                         textPaint.color = if (isDelConfirm) Color.WHITE else Color.parseColor("#EF4444")
                         textPaint.textAlign = Paint.Align.CENTER
                         canvas.drawText(if (isDelConfirm) "确认删除？" else "🗑", delRect.centerX(), delRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -3444,50 +3448,50 @@ class LowerScreenView @JvmOverloads constructor(
                     }
 
                     // ✏️ 重命名按钮
-                    val editW = 46f
+                    val editW = 48f
                     val editRect = RectF(rx - editW, btnTop, rx, btnBottom)
                     catEditBtnRects.add(editRect)
                     draw3dsSculptedDockButton(canvas, editRect, 10f, isPrimary = false, accentOverride = Color.parseColor("#F59E0B"))
                     textPaint.typeface = apolloMediumTypeface
-                    textPaint.textSize = 17f
+                    textPaint.textSize = 19f
                     textPaint.color = Color.parseColor("#F59E0B")
                     textPaint.textAlign = Paint.Align.CENTER
                     canvas.drawText("✏️", editRect.centerX(), editRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
                     rx -= (editW + 8f)
 
                     // ▼ 下移按钮
-                    val downW = 50f
+                    val downW = 52f
                     val downRect = RectF(rx - downW, btnTop, rx, btnBottom)
                     catDownBtnRects.add(downRect)
                     val canDown = (idx < categories.size - 1)
                     draw3dsSculptedDockButton(canvas, downRect, 10f, isPrimary = false, accentOverride = if (canDown) currentTheme.cursorMainColor else Color.GRAY)
                     textPaint.typeface = apolloMediumTypeface
-                    textPaint.textSize = 17f
+                    textPaint.textSize = 20f
                     textPaint.color = if (canDown) currentTheme.textPrimaryColor else Color.GRAY
                     textPaint.textAlign = Paint.Align.CENTER
                     canvas.drawText("▼", downRect.centerX(), downRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
                     rx -= (downW + 6f)
 
                     // ▲ 上移按钮
-                    val upW = 50f
+                    val upW = 52f
                     val upRect = RectF(rx - upW, btnTop, rx, btnBottom)
                     catUpBtnRects.add(upRect)
                     val canUp = (idx > 1) // 0 是 ALL
                     draw3dsSculptedDockButton(canvas, upRect, 10f, isPrimary = false, accentOverride = if (canUp) currentTheme.cursorMainColor else Color.GRAY)
                     textPaint.typeface = apolloMediumTypeface
-                    textPaint.textSize = 17f
+                    textPaint.textSize = 20f
                     textPaint.color = if (canUp) currentTheme.textPrimaryColor else Color.GRAY
                     textPaint.textAlign = Paint.Align.CENTER
                     canvas.drawText("▲", upRect.centerX(), upRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
                     rx -= (upW + 10f)
 
-                    // 🎮 管理游戏 按钮
-                    val mgW = 130f
+                    // 🎮 管理游戏 按钮 (实心高亮背景 + 纯白高对比文字)
+                    val mgW = 140f
                     val mgRect = RectF(rx - mgW, btnTop, rx, btnBottom)
                     catManageGamesBtnRects.add(mgRect)
-                    draw3dsSculptedDockButton(canvas, mgRect, 12f, isPrimary = true, accentOverride = cat.accentColor)
+                    draw3dsSculptedDockButton(canvas, mgRect, 12f, isPrimary = true, accentOverride = cat.accentColor, isSolid = true)
                     textPaint.typeface = apolloMediumTypeface
-                    textPaint.textSize = 16f
+                    textPaint.textSize = 19f
                     textPaint.color = Color.WHITE
                     textPaint.textAlign = Paint.Align.CENTER
                     canvas.drawText("🎮 管理游戏", mgRect.centerX(), mgRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -3524,14 +3528,15 @@ class LowerScreenView @JvmOverloads constructor(
 
         draw3dsSculptedDockButton(canvas, subPanelBackBtnRect, btnRadius, isPrimary = false)
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 17f
+        textPaint.textSize = 21f
         textPaint.color = currentTheme.textPrimaryColor
         textPaint.textAlign = Paint.Align.CENTER
         canvas.drawText("◀ 返回主屏 (B)", subPanelBackBtnRect.centerX(), subPanelBackBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         val isResetPending = pendingResetCategories && (System.currentTimeMillis() - pendingResetTimestamp < 5000L)
-        draw3dsSculptedDockButton(canvas, catMgrResetBtnRect, btnRadius, isPrimary = isResetPending, accentOverride = if (isResetPending) Color.parseColor("#EF4444") else Color.parseColor("#F59E0B"))
-        textPaint.color = if (isResetPending) Color.WHITE else Color.parseColor("#F59E0B")
+        draw3dsSculptedDockButton(canvas, catMgrResetBtnRect, btnRadius, isPrimary = isResetPending, accentOverride = if (isResetPending) Color.parseColor("#EF4444") else Color.parseColor("#F59E0B"), isSolid = isResetPending)
+        textPaint.color = if (isResetPending) Color.WHITE else Color.parseColor("#D97706")
+        textPaint.textSize = 21f
         canvas.drawText(if (isResetPending) "⚠️ 再次点击确认恢复默认" else "🔄 恢复默认排序", catMgrResetBtnRect.centerX(), catMgrResetBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
     }
 
@@ -4276,14 +4281,14 @@ class LowerScreenView @JvmOverloads constructor(
         h: Float,
         bottomBarH: Float
     ) {
-        val headerH = (innerPanel.height() * 0.11f).coerceIn(36f, 46f)
+        val headerH = (innerPanel.height() * 0.11f).coerceIn(40f, 48f)
         val headerTop = innerPanel.top + 8f
 
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (headerH * 0.55f).coerceIn(18f, 25f)
+        textPaint.textSize = 26f
         textPaint.color = currentTheme.cursorMainColor
         textPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("⚙️ 存储路径与系统高级设置", innerPanel.centerX(), headerTop + headerH * 0.55f, textPaint)
+        canvas.drawText("⚙️ 存储路径与系统高级设置", innerPanel.centerX(), headerTop + 33f, textPaint)
 
         val contentTop = headerTop + headerH + 8f
         val contentBottom = innerPanel.bottom - 12f
@@ -4300,14 +4305,14 @@ class LowerScreenView @JvmOverloads constructor(
         val cardH = (contentH - gapY * (rows - 1)) / rows
 
         val subFilterTypeLabel = when (subscreenRetroFilterType) {
-            "LCD_3X" -> "LCD 3X 经典次像素"
+            "LCD_3X" -> "LCD 3X 经典"
             "DOT_MATRIX" -> "细密点阵"
             "SCANLINE" -> "微扫描线"
             "CRT_APERTURE" -> "街机光栅"
             else -> subscreenRetroFilterType
         }
         val mainFilterTypeLabel = when (mainScreenRetroFilterType) {
-            "LCD_3X" -> "LCD 3X 经典次像素"
+            "LCD_3X" -> "LCD 3X 经典"
             "DOT_MATRIX" -> "细密点阵"
             "SCANLINE" -> "微扫描线"
             "CRT_APERTURE" -> "街机光栅"
@@ -4315,13 +4320,13 @@ class LowerScreenView @JvmOverloads constructor(
         }
         val mainFilterActive = mainScreenRetroFilterAuto2D || mainScreenRetroFilterEnabled
         val mainFilterModeDesc = when {
-            mainScreenRetroFilterEnabled -> "全局强制开启"
-            mainScreenRetroFilterAuto2D -> "2D智能识别开启"
+            mainScreenRetroFilterEnabled -> "全局强制"
+            mainScreenRetroFilterAuto2D -> "2D智能"
             else -> "关闭"
         }
 
         val titles = arrayOf(
-            "📂 挂载游戏目录管理与启闭",
+            "📂 挂载游戏目录与启闭",
             "🏷️ 系列与游戏类别管理",
             if (hideGamesWithoutCover) "🖼️ 隐藏无封面游戏: 开启" else "🖼️ 隐藏无封面游戏: 关闭",
             if (mainFilterActive) "📺 3DS主屏复古滤镜: $mainFilterModeDesc" else "📺 3DS主屏复古滤镜: 关闭",
@@ -4331,14 +4336,14 @@ class LowerScreenView @JvmOverloads constructor(
             "🏠 设为掌机默认主桌面"
         )
         val descs = arrayOf(
-            "已检测到 ${mediaLibraries.size} 个游戏目录 (已启用 ${mediaLibraries.count { it.isEnabled }} 个，点击进入手动启闭)",
-            "自定义系列/分类名称、上下调整排序，或从游戏库增删收录游戏 (点击进入)",
-            if (hideGamesWithoutCover) "当前: 已隐藏无封面游戏 · 仅卡槽展示精美海报游戏 (点击切换)" else "当前: 显示全部游戏 · 包含无封面纯ROM卡带 (点击切换)",
-            if (mainFilterActive) "当前: $mainFilterTypeLabel ($mainScreenRetroFilterOpacity%) · 2D自动开/3D高清 (点击配置)" else "主屏保持原始像素拉伸 (点击开启与配置)",
-            if (subscreenRetroFilterEnabled) "当前: $subFilterTypeLabel ($subscreenRetroFilterOpacity%) · 触屏零延迟穿透 (点击配置)" else "副屏保持原始像素拉伸 (点击开启与配置)",
-            if (subscreenCompanionEnabled) "当前: 启动GBA/PSP/PS2等副屏显示按键攻略 (点击关闭)" else "当前: 启动单屏游戏时副屏关闭/黑屏保持原生 (点击开启)",
-            if (isSplitPreviewEnabled) "上下屏画面合并在主屏幕预览 (点击切换真双屏)" else "上下屏独立分显在主副屏 (点击切换合并)",
-            "在系统设置中将「3DS HOME 双屏桌面」设为开机默认主屏幕 (点击前往)"
+            "已挂载 ${mediaLibraries.size} 个游戏目录 · 点击手动管理",
+            "自定义分类名称 · 上下排序与增删游戏",
+            if (hideGamesWithoutCover) "当前: 仅卡槽展示精选海报游戏" else "当前: 显示全部游戏 · 包含无封面ROM",
+            if (mainFilterActive) "$mainFilterTypeLabel ($mainScreenRetroFilterOpacity%) · 点击配置" else "主屏原始拉伸 · 点击开启与配置",
+            if (subscreenRetroFilterEnabled) "$subFilterTypeLabel ($subscreenRetroFilterOpacity%) · 点击配置" else "副屏原始拉伸 · 点击开启与配置",
+            if (subscreenCompanionEnabled) "启动单屏游戏显示按键与攻略 · 点击关闭" else "启动单屏游戏时副屏原生黑屏 · 点击开启",
+            if (isSplitPreviewEnabled) "单屏合并双屏画面 · 点击切换真双屏" else "上下屏独立分显 · 点击切换合并",
+            "系统设置设为开机默认主屏幕 · 点击前往"
         )
         val accents = intArrayOf(
             Color.parseColor("#0284C7"),
@@ -4370,14 +4375,14 @@ class LowerScreenView @JvmOverloads constructor(
 
             textPaint.typeface = apolloMediumTypeface
             textPaint.color = currentTheme.textPrimaryColor
-            textPaint.textSize = (cardH * 0.29f).coerceIn(16.5f, 23f)
+            textPaint.textSize = (cardH * 0.32f).coerceIn(19f, 24f)
             textPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText(titles[idx], cr.centerX(), cr.centerY() - cardH * 0.13f, textPaint)
+            canvas.drawText(titles[idx], cr.centerX(), cr.centerY() - cardH * 0.14f, textPaint)
 
             textPaint.typeface = apolloRegularTypeface
-            textPaint.color = currentTheme.textSecondaryColor
-            textPaint.textSize = (cardH * 0.19f).coerceIn(13.5f, 17f)
-            canvas.drawText(descs[idx], cr.centerX(), cr.centerY() + cardH * 0.22f, textPaint)
+            textPaint.color = Color.parseColor("#475569")
+            textPaint.textSize = (cardH * 0.22f).coerceIn(15.5f, 18.5f)
+            canvas.drawText(descs[idx], cr.centerX(), cr.centerY() + cardH * 0.24f, textPaint)
 
             if (isFocused) {
                 draw3dsCornerCursor(canvas, cr)
@@ -4419,32 +4424,26 @@ class LowerScreenView @JvmOverloads constructor(
         h: Float,
         bottomBarH: Float
     ) {
-        val headerH = (innerPanel.height() * 0.11f).coerceIn(36f, 46f)
+        val headerH = (innerPanel.height() * 0.11f).coerceIn(40f, 48f)
         val headerTop = innerPanel.top + 8f
 
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (headerH * 0.55f).coerceIn(18f, 25f)
+        textPaint.textSize = 26f
         textPaint.color = currentTheme.cursorMainColor
         textPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("📁 手动选择游戏文件夹挂载", innerPanel.centerX(), headerTop + headerH * 0.55f, textPaint)
-
-        val descY = headerTop + headerH + 12f
-        textPaint.typeface = apolloRegularTypeface
-        textPaint.textSize = 14.5f
-        textPaint.color = currentTheme.textSecondaryColor
-        canvas.drawText("点击文件夹进入；选定后点击右下角「✔ 确认挂载此文件夹」载入游戏与媒体：", innerPanel.centerX(), descY, textPaint)
+        canvas.drawText("📁 手动选择游戏文件夹挂载", innerPanel.centerX(), headerTop + 33f, textPaint)
 
         val contentLeft = innerPanel.left + 16f
         val contentRight = innerPanel.right - 16f
         val contentW = (contentRight - contentLeft).coerceAtLeast(100f)
 
-        // 1. 存储介质选择选项卡行 (TF卡 / 内部存储)
-        val tabH = 34f
-        val tabTop = descY + 6f
+        // 1. 存储介质选择选项卡行 (TF卡 / 内部存储) - 移除冗长副标题，大字选项卡
+        val tabH = 40f
+        val tabTop = headerTop + headerH + 8f
         pickerStorageTabRects.clear()
         if (pickerStorageRoots.isNotEmpty()) {
             val tabGap = 8f
-            val tabW = ((contentW - tabGap * (pickerStorageRoots.size - 1)) / pickerStorageRoots.size.toFloat()).coerceIn(100f, 260f)
+            val tabW = ((contentW - tabGap * (pickerStorageRoots.size - 1)) / pickerStorageRoots.size.toFloat()).coerceIn(100f, 280f)
             for ((idx, root) in pickerStorageRoots.withIndex()) {
                 val isTf = root.name.contains("-") || (root.absolutePath.contains("storage/") && !root.absolutePath.contains("emulated/0"))
                 val label = if (isTf) "🎴 TF卡 (${root.name})" else "📱 内部存储"
@@ -4455,13 +4454,14 @@ class LowerScreenView @JvmOverloads constructor(
                 draw3dsSculptedDockButton(
                     canvas = canvas,
                     r = tr,
-                    radius = 8f,
+                    radius = 10f,
                     isPrimary = isCur,
                     accentOverride = if (isCur) Color.parseColor("#0284C7") else Color.parseColor("#64748B"),
-                    drawOutline = !isCur
+                    drawOutline = !isCur,
+                    isSolid = isCur
                 )
                 textPaint.typeface = apolloMediumTypeface
-                textPaint.textSize = 13.5f
+                textPaint.textSize = 18f
                 textPaint.color = if (isCur) Color.WHITE else currentTheme.textSecondaryColor
                 textPaint.textAlign = Paint.Align.CENTER
                 canvas.drawText(label, tr.centerX(), tr.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -4470,29 +4470,29 @@ class LowerScreenView @JvmOverloads constructor(
 
         // 2. 当前浏览路径横幅与 ROM 统计
         val bannerTop = if (pickerStorageTabRects.isNotEmpty()) tabTop + tabH + 8f else tabTop
-        val bannerH = 36f
+        val bannerH = 40f
         val bannerRect = RectF(contentLeft, bannerTop, contentRight, bannerTop + bannerH)
         paint.style = Paint.Style.FILL
         paint.color = Color.argb(35, 0, 0, 0)
         canvas.drawRoundRect(bannerRect, 8f, 8f, paint)
 
         val curPath = pickerCurrentDir?.absolutePath.orEmpty()
-        val maxChars = (contentW / 10f).toInt().coerceIn(16, 65)
+        val maxChars = (contentW / 12f).toInt().coerceIn(16, 65)
         val displayPath = if (curPath.length > maxChars) "..." + curPath.takeLast(maxChars - 3) else curPath
 
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 13f
+        textPaint.textSize = 17f
         textPaint.color = currentTheme.textPrimaryColor
         textPaint.textAlign = Paint.Align.LEFT
         val pathY = bannerRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f
-        canvas.drawText("📂 当前: $displayPath", bannerRect.left + 12f, pathY, textPaint)
+        canvas.drawText("📂 当前: $displayPath", bannerRect.left + 14f, pathY, textPaint)
 
         if (pickerRomCountInCurrentDir > 0) {
             textPaint.typeface = apolloMediumTypeface
-            textPaint.textSize = 13f
+            textPaint.textSize = 17f
             textPaint.color = Color.parseColor("#10B981")
             textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("✨ 包含 $pickerRomCountInCurrentDir 款游戏 ROM", bannerRect.right - 12f, pathY, textPaint)
+            canvas.drawText("✨ 包含 $pickerRomCountInCurrentDir 款游戏 ROM", bannerRect.right - 14f, pathY, textPaint)
         }
 
         // 3. 文件夹列表滑动区域
@@ -4503,7 +4503,7 @@ class LowerScreenView @JvmOverloads constructor(
 
         val isAtRoot = pickerStorageRoots.any { it.absolutePath == pickerCurrentDir?.absolutePath }
         val hasParent = pickerCurrentDir?.parentFile != null && !isAtRoot
-        val itemH = 50f
+        val itemH = 56f
         val itemGap = 6f
         val totalCount = (if (hasParent) 1 else 0) + pickerSubDirs.size
         val totalH = totalCount * (itemH + itemGap) + 10f
@@ -4528,7 +4528,7 @@ class LowerScreenView @JvmOverloads constructor(
             if (pickerUpItemRect.bottom >= pickerContentArea.top - 10f && pickerUpItemRect.top <= pickerContentArea.bottom + 10f) {
                 draw3dsSculptedDockButton(canvas, pickerUpItemRect, 8f, isPrimary = false, accentOverride = Color.parseColor("#2563EB"))
                 textPaint.typeface = apolloMediumTypeface
-                textPaint.textSize = 14f
+                textPaint.textSize = 18f
                 textPaint.color = Color.parseColor("#2563EB")
                 textPaint.textAlign = Paint.Align.LEFT
                 val pName = pickerCurrentDir?.parentFile?.name?.ifBlank { "根目录" } ?: "根目录"
@@ -4541,7 +4541,7 @@ class LowerScreenView @JvmOverloads constructor(
 
         if (pickerSubDirs.isEmpty() && isAtRoot) {
             textPaint.typeface = apolloRegularTypeface
-            textPaint.textSize = 13.5f
+            textPaint.textSize = 16f
             textPaint.color = currentTheme.textSecondaryColor
             textPaint.textAlign = Paint.Align.CENTER
             canvas.drawText("（此根目录下无可见子文件夹）", pickerContentArea.centerX(), pickerContentArea.top + 50f, textPaint)
@@ -4550,10 +4550,10 @@ class LowerScreenView @JvmOverloads constructor(
         for (sub in pickerSubDirs) {
             val r = RectF(contentLeft, curY, contentRight, curY + itemH)
             pickerFolderRects.add(r)
+
             if (r.bottom >= pickerContentArea.top - 10f && r.top <= pickerContentArea.bottom + 10f) {
                 val subRoms = sub.listFiles()?.count { it.isFile && validRomExtensions.contains(it.extension.lowercase()) } ?: 0
-                val hasRoms = subRoms > 0
-
+                val hasRoms = (subRoms > 0)
                 draw3dsSculptedDockButton(
                     canvas = canvas,
                     r = r,
@@ -4564,7 +4564,7 @@ class LowerScreenView @JvmOverloads constructor(
                 )
 
                 textPaint.typeface = if (hasRoms) apolloMediumTypeface else apolloRegularTypeface
-                textPaint.textSize = 14.5f
+                textPaint.textSize = 18f
                 textPaint.color = if (hasRoms) Color.parseColor("#059669") else currentTheme.textPrimaryColor
                 textPaint.textAlign = Paint.Align.LEFT
                 val romTag = if (hasRoms) " (🎮 $subRoms 款游戏)" else ""
@@ -4572,7 +4572,7 @@ class LowerScreenView @JvmOverloads constructor(
                 canvas.drawText(itemTitle, r.left + 16f, r.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
                 textPaint.typeface = apolloRegularTypeface
-                textPaint.textSize = 12.5f
+                textPaint.textSize = 16f
                 textPaint.color = currentTheme.textSecondaryColor
                 textPaint.textAlign = Paint.Align.RIGHT
                 canvas.drawText("进入 ▶", r.right - 16f, r.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -4606,19 +4606,20 @@ class LowerScreenView @JvmOverloads constructor(
         val gap = 12f
 
         val availW = w - sidePad * 2f - gap
-        val cancelW = (availW * 0.38f).coerceIn(160f, 240f)
+        val cancelW = (availW * 0.38f).coerceIn(160f, 260f)
         pickerCancelBtnRect.set(sidePad, btnTop, sidePad + cancelW, btnBottom)
         pickerConfirmBtnRect.set(pickerCancelBtnRect.right + gap, btnTop, w - sidePad, btnBottom)
 
         draw3dsSculptedDockButton(canvas, pickerCancelBtnRect, btnRadius, isPrimary = false)
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (pickerCancelBtnRect.height() * 0.42f).coerceIn(14f, 18f)
+        textPaint.textSize = 20f
         textPaint.color = currentTheme.textPrimaryColor
         textPaint.textAlign = Paint.Align.CENTER
         canvas.drawText("◀ 返回目录管理 (B)", pickerCancelBtnRect.centerX(), pickerCancelBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
-        draw3dsSculptedDockButton(canvas, pickerConfirmBtnRect, btnRadius, isPrimary = true, accentOverride = Color.parseColor("#10B981"))
+        draw3dsSculptedDockButton(canvas, pickerConfirmBtnRect, btnRadius, isPrimary = true, accentOverride = Color.parseColor("#10B981"), isSolid = true)
         textPaint.color = Color.WHITE
+        textPaint.textSize = 21f
         canvas.drawText("✔ 确认挂载当前文件夹", pickerConfirmBtnRect.centerX(), pickerConfirmBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
     }
 
@@ -4679,21 +4680,21 @@ class LowerScreenView @JvmOverloads constructor(
         h: Float,
         bottomBarH: Float
     ) {
-        val headerH = (innerPanel.height() * 0.11f).coerceIn(36f, 46f)
+        val headerH = (innerPanel.height() * 0.11f).coerceIn(40f, 48f)
         val headerTop = innerPanel.top + 8f
         val contentLeft = innerPanel.left + 16f
         val contentRight = innerPanel.right - 16f
         val contentW = (contentRight - contentLeft).coerceAtLeast(100f)
 
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (headerH * 0.55f).coerceIn(18f, 25f)
+        textPaint.textSize = 26f
         textPaint.color = currentTheme.cursorMainColor
         textPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("📂 游戏目录管理 (手动挂载与启闭)", contentLeft, headerTop + headerH * 0.55f, textPaint)
+        canvas.drawText("📂 游戏目录管理 (手动挂载与启闭)", contentLeft, headerTop + 33f, textPaint)
 
         // 右上角：一键切换「隐藏无封面游戏」药丸按钮
-        val pillW = 195f
-        val pillH = 32f
+        val pillW = 210f
+        val pillH = 40f
         mediaLibHideMissingCoverBtnRect.set(contentRight - pillW, headerTop + (headerH - pillH) / 2f, contentRight, headerTop + (headerH + pillH) / 2f)
         draw3dsSculptedDockButton(
             canvas = canvas,
@@ -4701,22 +4702,18 @@ class LowerScreenView @JvmOverloads constructor(
             radius = pillH / 2f,
             isPrimary = hideGamesWithoutCover,
             accentOverride = if (hideGamesWithoutCover) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
-            drawOutline = !hideGamesWithoutCover
+            drawOutline = !hideGamesWithoutCover,
+            isSolid = hideGamesWithoutCover
         )
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 12.5f
+        textPaint.textSize = 17f
         textPaint.color = if (hideGamesWithoutCover) Color.WHITE else currentTheme.textSecondaryColor
         textPaint.textAlign = Paint.Align.CENTER
-        val hideLabel = if (hideGamesWithoutCover) "🖼️ 隐藏无封面: 开启" else "🖼️ 隐藏无封面: 关闭"
+        val hideLabel = if (hideGamesWithoutCover) "🖼️ 隐藏无封面: 开" else "🖼️ 隐藏无封面: 关"
         canvas.drawText(hideLabel, mediaLibHideMissingCoverBtnRect.centerX(), mediaLibHideMissingCoverBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
-        val descY = headerTop + headerH + 14f
-        textPaint.typeface = apolloRegularTypeface
-        textPaint.textSize = 15.5f
-        textPaint.color = currentTheme.textSecondaryColor
-        canvas.drawText("已挂载 ${mediaLibraries.size} 个目录，可单独开启/关闭、单个移除或添加新目录：", innerPanel.centerX(), descY, textPaint)
-
-        val contentTop = descY + 8f
+        // 移除冗长说明副标题，直接留给列表更多纵向空间
+        val contentTop = headerTop + headerH + 8f
 
         val dockTop = h - bottomBarH
         val btnTop = dockTop + 7f
@@ -4730,22 +4727,22 @@ class LowerScreenView @JvmOverloads constructor(
             val emptyCardW = (contentW * 0.92f).coerceIn(320f, 640f)
             val emptyCardRect = RectF(
                 innerPanel.centerX() - emptyCardW / 2f,
-                descY + 16f,
+                contentTop + 16f,
                 innerPanel.centerX() + emptyCardW / 2f,
-                descY + 16f + emptyCardH
+                contentTop + 16f + emptyCardH
             )
             draw3dsSculptedDockButton(canvas, emptyCardRect, 18f, isPrimary = false, accentOverride = Color.parseColor("#F59E0B"))
 
             textPaint.typeface = apolloMediumTypeface
-            textPaint.textSize = (emptyCardH * 0.16f).coerceIn(19f, 25f)
-            textPaint.color = Color.parseColor("#F59E0B")
+            textPaint.textSize = 25f
+            textPaint.color = Color.parseColor("#D97706")
             textPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText("📂 暂未手动挂载游戏目录", emptyCardRect.centerX(), emptyCardRect.top + emptyCardH * 0.32f, textPaint)
+            canvas.drawText("📂 暂未挂载游戏目录", emptyCardRect.centerX(), emptyCardRect.top + emptyCardH * 0.38f, textPaint)
 
             textPaint.typeface = apolloRegularTypeface
-            textPaint.textSize = (emptyCardH * 0.11f).coerceIn(14.5f, 18.5f)
+            textPaint.textSize = 18f
             textPaint.color = currentTheme.textSecondaryColor
-            canvas.drawText("点击下方「➕ 手动添加游戏目录」选择 TF 卡或机身存储中的文件夹进行挂载：", emptyCardRect.centerX(), emptyCardRect.top + emptyCardH * 0.60f, textPaint)
+            canvas.drawText("点击下方「➕ 添加目录」选择 TF 卡或内置存储挂载", emptyCardRect.centerX(), emptyCardRect.top + emptyCardH * 0.65f, textPaint)
 
             val availW = w - sidePad * 2f - gap
             val backW = (availW * 0.35f).coerceIn(160f, 240f)
@@ -4761,13 +4758,14 @@ class LowerScreenView @JvmOverloads constructor(
 
             draw3dsSculptedDockButton(canvas, subPanelBackBtnRect, btnRadius, isPrimary = false)
             textPaint.typeface = apolloMediumTypeface
-            textPaint.textSize = (subPanelBackBtnRect.height() * 0.42f).coerceIn(14f, 18f)
+            textPaint.textSize = 20f
             textPaint.color = currentTheme.textPrimaryColor
             textPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText("◀ 返回设置 (B)", subPanelBackBtnRect.centerX(), subPanelBackBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+            canvas.drawText("◀ 返回 (B)", subPanelBackBtnRect.centerX(), subPanelBackBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
-            draw3dsSculptedDockButton(canvas, mediaLibAddBtnRect, btnRadius, isPrimary = true, accentOverride = Color.parseColor("#10B981"))
+            draw3dsSculptedDockButton(canvas, mediaLibAddBtnRect, btnRadius, isPrimary = true, accentOverride = Color.parseColor("#2563EB"), isSolid = true)
             textPaint.color = Color.WHITE
+            textPaint.textSize = 21f
             canvas.drawText("➕ 手动添加游戏目录", mediaLibAddBtnRect.centerX(), mediaLibAddBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
             return
         }
@@ -4775,7 +4773,7 @@ class LowerScreenView @JvmOverloads constructor(
         val contentBottom = innerPanel.bottom - 10f
         mediaLibContentArea.set(contentLeft, contentTop, contentRight, contentBottom)
 
-        val cardH = 72f
+        val cardH = 82f
         val cardGap = 8f
         val totalH = mediaLibraries.size * (cardH + cardGap) + 12f
         maxMediaLibScrollY = (totalH - mediaLibContentArea.height()).coerceAtLeast(0f)
@@ -4819,35 +4817,33 @@ class LowerScreenView @JvmOverloads constructor(
                 )
 
                 // 右侧操作按钮：[ 移除 ] 和 [ 启闭 ]
-                val removeW = 72f
-                val removeH = 36f
+                val removeW = 85f
+                val removeH = 44f
                 val removeRect = RectF(cr.right - removeW - 14f, cr.centerY() - removeH / 2f, cr.right - 14f, cr.centerY() + removeH / 2f)
                 mediaLibRemoveItemRects[idx].set(removeRect)
 
-                val switchW = 92f
-                val switchH = 36f
-                val switchRect = RectF(removeRect.left - 8f - switchW, cr.centerY() - switchH / 2f, removeRect.left - 8f, cr.centerY() + switchH / 2f)
+                val switchW = 105f
+                val switchH = 44f
+                val switchRect = RectF(removeRect.left - 10f - switchW, cr.centerY() - switchH / 2f, removeRect.left - 10f, cr.centerY() + switchH / 2f)
 
-                // 1) 左侧模拟器目录名称（加粗、大字号醒目突出模拟器机种/文件夹名称）
+                // 1) 左侧模拟器目录名称 (大字号 25f 醒目突出)
                 textPaint.typeface = apolloMediumTypeface
-                textPaint.textSize = 20.5f
+                textPaint.textSize = 25f
                 textPaint.color = if (isEnabled) currentTheme.textPrimaryColor else currentTheme.textSecondaryColor
                 textPaint.textAlign = Paint.Align.LEFT
                 val titleY = cr.top + cardH * 0.38f
                 canvas.drawText("🎮 " + lib.name, cr.left + 16f, titleY, textPaint)
 
-                // 2) 路径与来源（次要显示，弱化 TF卡/内置存储，仅作为小字标注）
+                // 2) 游戏数与存储介质 (清晰纯粹大字号 18f，不展示冗余raw路径)
                 val isTf = lib.path.contains("storage/", ignoreCase = true) && !lib.path.contains("emulated/0", ignoreCase = true)
                 val sourceTag = if (isTf) "TF卡" else "内置存储"
-                val countText = if (lib.gameCount > 0) " · 🎮 ${lib.gameCount} 款游戏就绪" else ""
-                val maxChars = ((switchRect.left - cr.left - 24f) / 9.5f).toInt().coerceIn(14, 55)
-                val displayPath = if (lib.path.length > maxChars) "..." + lib.path.takeLast(maxChars - 3) else lib.path
+                val countText = if (lib.gameCount > 0) "🎮 ${lib.gameCount} 款游戏就绪 · " else ""
                 textPaint.typeface = apolloRegularTypeface
-                textPaint.textSize = 12.5f
-                textPaint.color = currentTheme.textSecondaryColor
-                canvas.drawText("📁 [$sourceTag] $displayPath$countText", cr.left + 16f, cr.top + cardH * 0.76f, textPaint)
+                textPaint.textSize = 18f
+                textPaint.color = Color.parseColor("#475569")
+                canvas.drawText("$countText$sourceTag", cr.left + 16f, cr.top + cardH * 0.74f, textPaint)
 
-                // 3) 右侧 3DS 触控开关药丸
+                // 3) 右侧 3DS 触控开关药丸 (大字号 18f)
                 paint.style = Paint.Style.FILL
                 paint.color = if (isEnabled) Color.argb(235, 16, 185, 129) else Color.argb(130, 100, 116, 139)
                 canvas.drawRoundRect(switchRect, switchH / 2f, switchH / 2f, paint)
@@ -4858,26 +4854,26 @@ class LowerScreenView @JvmOverloads constructor(
                 canvas.drawRoundRect(switchRect, switchH / 2f, switchH / 2f, paint)
 
                 textPaint.typeface = apolloMediumTypeface
-                textPaint.textSize = 13.5f
+                textPaint.textSize = 18f
                 textPaint.color = Color.WHITE
                 textPaint.textAlign = Paint.Align.CENTER
                 val switchLabel = if (isEnabled) "✔ 已开启" else "○ 已关闭"
                 canvas.drawText(switchLabel, switchRect.centerX(), switchRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
-                // 4) 单项「移除」按钮 (支持原版 3DS 两次点击防误触)
+                // 4) 单项「移除」按钮 (字号 18f)
                 val isPendingRemove = (pendingRemovePath == lib.path && System.currentTimeMillis() - pendingRemoveTimestamp < 4000L)
                 val removeLabel = if (isPendingRemove) "⚠️ 确认?" else "🗑 移除"
                 paint.style = Paint.Style.FILL
-                paint.color = if (isPendingRemove) Color.argb(255, 220, 38, 38) else Color.argb(220, 239, 68, 68)
+                paint.color = if (isPendingRemove) Color.argb(235, 220, 38, 38) else Color.argb(160, 239, 68, 68)
                 canvas.drawRoundRect(removeRect, removeH / 2f, removeH / 2f, paint)
 
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = 1.2f
-                paint.color = Color.argb(180, 255, 255, 255)
+                paint.color = Color.argb(160, 255, 255, 255)
                 canvas.drawRoundRect(removeRect, removeH / 2f, removeH / 2f, paint)
 
                 textPaint.typeface = apolloMediumTypeface
-                textPaint.textSize = if (isPendingRemove) 12f else 13.5f
+                textPaint.textSize = if (isPendingRemove) 15.5f else 18f
                 textPaint.color = Color.WHITE
                 textPaint.textAlign = Paint.Align.CENTER
                 canvas.drawText(removeLabel, removeRect.centerX(), removeRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -4886,28 +4882,13 @@ class LowerScreenView @JvmOverloads constructor(
                     draw3dsCornerCursor(canvas, cr)
                 }
             }
+
             curY += cardH + cardGap
-        }
-
-        // 绘制滚动条
-        if (maxMediaLibScrollY > 4f) {
-            val scrollRatio = (mediaLibScrollY / maxMediaLibScrollY).coerceIn(0f, 1f)
-            val barW = 5f
-            val barTrackH = mediaLibContentArea.height() - 16f
-            val thumbH = (barTrackH * (mediaLibContentArea.height() / totalH)).coerceIn(24f, barTrackH * 0.75f)
-            val thumbY = mediaLibContentArea.top + 8f + scrollRatio * (barTrackH - thumbH)
-            val thumbX = contentRight - barW - 3f
-
-            paint.style = Paint.Style.FILL
-            paint.color = Color.argb(40, 0, 0, 0)
-            canvas.drawRoundRect(RectF(thumbX, mediaLibContentArea.top + 8f, thumbX + barW, mediaLibContentArea.top + 8f + barTrackH), barW / 2f, barW / 2f, paint)
-            paint.color = blendColor(currentTheme.cursorMainColor, Color.WHITE, 0.25f)
-            canvas.drawRoundRect(RectF(thumbX, thumbY, thumbX + barW, thumbY + thumbH), barW / 2f, barW / 2f, paint)
         }
 
         canvas.restore()
 
-        // 底部原版四键操作底栏：[ ◀ 返回设置 (B) ] [ ➕ 添加目录 ] [ ✔ 全部开启 ] [ 🗑 全部移除 ]
+        // 底部原版四键操作底栏：[ ◀ 返回 (B) ] [ ➕ 添加目录 ] [ ✔ 全部开启 ] [ 🗑 全部移除 ]
         val availW = w - sidePad * 2f - gap * 3f
         val backW = availW * 0.23f
         val addW = availW * 0.27f
@@ -4926,23 +4907,25 @@ class LowerScreenView @JvmOverloads constructor(
             canvas = canvas,
             r = subPanelBackBtnRect,
             radius = btnRadius,
-            isPrimary = true,
+            isPrimary = false,
             accentOverride = currentTheme.cursorMainColor
         )
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (subPanelBackBtnRect.height() * 0.42f).coerceIn(13f, 17f)
+        textPaint.textSize = 20f
         textPaint.color = currentTheme.textPrimaryColor
         textPaint.textAlign = Paint.Align.CENTER
         canvas.drawText("◀ 返回 (B)", subPanelBackBtnRect.centerX(), subPanelBackBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
+        // 添加目录按钮：实心深海蓝高对比度立体按键
         draw3dsSculptedDockButton(
             canvas = canvas,
             r = mediaLibAddBtnRect,
             radius = btnRadius,
             isPrimary = true,
-            accentOverride = Color.parseColor("#3B82F6")
+            accentOverride = Color.parseColor("#2563EB"),
+            isSolid = true
         )
-        textPaint.textSize = (mediaLibAddBtnRect.height() * 0.40f).coerceIn(12.5f, 16f)
+        textPaint.textSize = 21f
         textPaint.color = Color.WHITE
         canvas.drawText("➕ 添加目录", mediaLibAddBtnRect.centerX(), mediaLibAddBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
@@ -4956,7 +4939,7 @@ class LowerScreenView @JvmOverloads constructor(
             isPrimary = false,
             accentOverride = toggleColor
         )
-        textPaint.textSize = (mediaLibEnableAllBtnRect.height() * 0.40f).coerceIn(12.5f, 16f)
+        textPaint.textSize = 20f
         textPaint.color = toggleColor
         canvas.drawText(toggleLabel, mediaLibEnableAllBtnRect.centerX(), mediaLibEnableAllBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
@@ -4968,9 +4951,10 @@ class LowerScreenView @JvmOverloads constructor(
             r = mediaLibRemoveAllBtnRect,
             radius = btnRadius,
             isPrimary = isPendingAll,
-            accentOverride = allColor
+            accentOverride = allColor,
+            isSolid = isPendingAll
         )
-        textPaint.textSize = if (isPendingAll) (mediaLibRemoveAllBtnRect.height() * 0.36f).coerceIn(11.5f, 15f) else (mediaLibRemoveAllBtnRect.height() * 0.40f).coerceIn(12.5f, 16f)
+        textPaint.textSize = if (isPendingAll) 17f else 20f
         textPaint.color = if (isPendingAll) Color.WHITE else Color.parseColor("#EF4444")
         canvas.drawText(allLabel, mediaLibRemoveAllBtnRect.centerX(), mediaLibRemoveAllBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
     }
@@ -6266,14 +6250,14 @@ class LowerScreenView @JvmOverloads constructor(
         h: Float,
         bottomBarH: Float
     ) {
-        val headerH = (innerPanel.height() * 0.11f).coerceIn(36f, 46f)
+        val headerH = (innerPanel.height() * 0.11f).coerceIn(40f, 48f)
         val headerTop = innerPanel.top + 8f
 
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (headerH * 0.52f).coerceIn(16f, 22f)
+        textPaint.textSize = 26f
         textPaint.color = currentTheme.cursorMainColor
         textPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("⚡ 3DS / NDS 副屏复古液晶滤镜", innerPanel.centerX(), headerTop + headerH * 0.55f, textPaint)
+        canvas.drawText("⚡ 3DS / NDS 副屏复古液晶滤镜", innerPanel.centerX(), headerTop + 33f, textPaint)
 
         val contentTop = headerTop + headerH + 8f
         val contentBottom = innerPanel.bottom - 12f
@@ -6289,31 +6273,26 @@ class LowerScreenView @JvmOverloads constructor(
 
         // ===== 左侧控制卡片 (3 层垂直堆叠) =====
         val cardGap = 8f
-        val toggleH = (contentH * 0.26f).coerceIn(46f, 64f)
-        val presetH = (contentH * 0.45f).coerceIn(80f, 115f)
+        val toggleH = (contentH * 0.26f).coerceIn(48f, 64f)
+        val presetH = (contentH * 0.45f).coerceIn(86f, 120f)
         val opacityH = contentH - toggleH - presetH - cardGap * 2f
 
-        // 1. 滤镜总开关卡片
+        // 1. 滤镜总开关卡片 (去除冗长技术说明副标题，大字垂直居中)
         val toggleRect = RectF(contentLeft, contentTop, contentLeft + leftW, contentTop + toggleH)
         draw3dsSculptedDockButton(canvas, toggleRect, 14f, isPrimary = subscreenRetroFilterEnabled, accentOverride = if (subscreenRetroFilterEnabled) Color.parseColor("#10B981") else Color.parseColor("#64748B"))
 
-        filterToggleSwitchRect.set(toggleRect.right - 150f, toggleRect.top + 8f, toggleRect.right - 10f, toggleRect.bottom - 8f)
-        draw3dsSculptedDockButton(canvas, filterToggleSwitchRect, 10f, isPrimary = true, accentOverride = if (subscreenRetroFilterEnabled) Color.parseColor("#059669") else Color.parseColor("#475569"))
+        filterToggleSwitchRect.set(toggleRect.right - 145f, toggleRect.centerY() - 22f, toggleRect.right - 12f, toggleRect.centerY() + 22f)
+        draw3dsSculptedDockButton(canvas, filterToggleSwitchRect, 10f, isPrimary = true, accentOverride = if (subscreenRetroFilterEnabled) Color.parseColor("#059669") else Color.parseColor("#475569"), isSolid = true)
 
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (toggleH * 0.28f).coerceIn(14f, 18f)
+        textPaint.textSize = 22f
         textPaint.color = currentTheme.textPrimaryColor
-        canvas.drawText("🔘 3DS / NDS 副屏液晶滤镜总开关", toggleRect.left + 14f, toggleRect.top + toggleH * 0.38f, textPaint)
-
-        textPaint.typeface = apolloRegularTypeface
-        textPaint.textSize = (toggleH * 0.20f).coerceIn(11f, 14f)
-        textPaint.color = currentTheme.textSecondaryColor
-        canvas.drawText("游戏中触屏零延迟完全穿透 (Citra/DraStic 专用)", toggleRect.left + 14f, toggleRect.top + toggleH * 0.72f, textPaint)
+        canvas.drawText("🔘 副屏液晶滤镜总开关", toggleRect.left + 16f, toggleRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         textPaint.textAlign = Paint.Align.CENTER
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (filterToggleSwitchRect.height() * 0.44f).coerceIn(12f, 16f)
+        textPaint.textSize = 19f
         textPaint.color = Color.WHITE
         val switchText = if (subscreenRetroFilterEnabled) "✔ 已开启" else "✖ 已关闭"
         canvas.drawText(switchText, filterToggleSwitchRect.centerX(), filterToggleSwitchRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -6325,11 +6304,11 @@ class LowerScreenView @JvmOverloads constructor(
 
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 14f
+        textPaint.textSize = 18f
         textPaint.color = currentTheme.cursorMainColor
-        canvas.drawText("📺 滤镜风格 (4 款经典液晶预设)", presetRect.left + 14f, presetRect.top + 20f, textPaint)
+        canvas.drawText("📺 滤镜风格预设", presetRect.left + 14f, presetRect.top + 22f, textPaint)
 
-        val btnGridTop = presetRect.top + 30f
+        val btnGridTop = presetRect.top + 32f
         val btnGridH = presetRect.bottom - btnGridTop - 8f
         val btnGridW = presetRect.width() - 20f
         val btnGapX = 8f
@@ -6338,7 +6317,7 @@ class LowerScreenView @JvmOverloads constructor(
         val btnH = (btnGridH - btnGapY) / 2f
 
         val presetTypes = arrayOf("LCD_3X", "DOT_MATRIX", "SCANLINE", "CRT_APERTURE")
-        val presetNames = arrayOf("LCD 3X 经典次像素 ★", "细密点阵 (Dot Matrix)", "复古微扫描线", "街机光栅条纹")
+        val presetNames = arrayOf("LCD 3X 经典", "细密点阵 (Dot)", "复古微扫描线", "街机光栅条纹")
         val presetColors = intArrayOf(
             Color.parseColor("#0284C7"),
             Color.parseColor("#10B981"),
@@ -6355,29 +6334,29 @@ class LowerScreenView @JvmOverloads constructor(
             filterTypeRects[i].set(br)
 
             val isSelected = (subscreenRetroFilterType == presetTypes[i])
-            draw3dsSculptedDockButton(canvas, br, 10f, isPrimary = isSelected, accentOverride = if (isSelected) presetColors[i] else Color.parseColor("#94A3B8"), drawOutline = !isSelected)
+            draw3dsSculptedDockButton(canvas, br, 10f, isPrimary = isSelected, accentOverride = if (isSelected) presetColors[i] else Color.parseColor("#94A3B8"), drawOutline = !isSelected, isSolid = isSelected)
 
             textPaint.textAlign = Paint.Align.CENTER
             textPaint.typeface = if (isSelected) apolloMediumTypeface else apolloRegularTypeface
-            textPaint.textSize = (btnH * 0.42f).coerceIn(12f, 15f)
+            textPaint.textSize = 18f
             textPaint.color = if (isSelected) Color.WHITE else currentTheme.textPrimaryColor
             val label = if (isSelected) "✔ ${presetNames[i]}" else presetNames[i]
             canvas.drawText(label, br.centerX(), br.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
         }
 
-        // 3. 滤镜浓度卡片 (1 行 4 档: 20%, 30%, 40%, 50%)
+        // 3. 滤镜浓度卡片 (1 行 4 档: 10%, 20%, 30%, 40%)
         val opacityTop = presetRect.bottom + cardGap
         val opacityRect = RectF(contentLeft, opacityTop, contentLeft + leftW, contentTop + contentH)
         draw3dsSculptedDockButton(canvas, opacityRect, 14f, isPrimary = false)
 
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 14f
+        textPaint.textSize = 18f
         textPaint.color = currentTheme.cursorMainColor
-        canvas.drawText("💡 滤镜浓度 (不透明度)", opacityRect.left + 14f, opacityRect.top + 20f, textPaint)
+        canvas.drawText("💡 滤镜浓度 (不透明度)", opacityRect.left + 14f, opacityRect.top + 22f, textPaint)
 
-        val opBtnTop = opacityRect.top + 28f
-        val opBtnH = (opacityRect.bottom - opBtnTop - 8f).coerceAtLeast(24f)
+        val opBtnTop = opacityRect.top + 30f
+        val opBtnH = (opacityRect.bottom - opBtnTop - 8f).coerceAtLeast(26f)
         val opValues = intArrayOf(10, 20, 30, 40)
         val opLabels = arrayOf("10% 微弱", "20% 均衡★", "30% 鲜明", "40% 浓郁")
         val opBtnW = (opacityRect.width() - 20f - 8f * 3f) / 4f
@@ -6388,11 +6367,11 @@ class LowerScreenView @JvmOverloads constructor(
             filterOpacityRects[i].set(obr)
 
             val isSelected = (subscreenRetroFilterOpacity == opValues[i])
-            draw3dsSculptedDockButton(canvas, obr, 8f, isPrimary = isSelected, accentOverride = if (isSelected) currentTheme.cursorMainColor else Color.parseColor("#94A3B8"), drawOutline = !isSelected)
+            draw3dsSculptedDockButton(canvas, obr, 8f, isPrimary = isSelected, accentOverride = if (isSelected) currentTheme.cursorMainColor else Color.parseColor("#94A3B8"), drawOutline = !isSelected, isSolid = isSelected)
 
             textPaint.textAlign = Paint.Align.CENTER
             textPaint.typeface = if (isSelected) apolloMediumTypeface else apolloRegularTypeface
-            textPaint.textSize = (opBtnH * 0.40f).coerceIn(11f, 14f)
+            textPaint.textSize = 18f
             textPaint.color = if (isSelected) Color.WHITE else currentTheme.textPrimaryColor
             val label = if (isSelected) "✔ ${opLabels[i]}" else opLabels[i]
             canvas.drawText(label, obr.centerX(), obr.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -6405,7 +6384,7 @@ class LowerScreenView @JvmOverloads constructor(
         // 预览窗标题
         textPaint.textAlign = Paint.Align.CENTER
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 14f
+        textPaint.textSize = 18f
         textPaint.color = currentTheme.cursorMainColor
         canvas.drawText("📱 3DS 副屏模拟实时效果", filterPreviewBoxRect.centerX(), filterPreviewBoxRect.top + 22f, textPaint)
 
@@ -6413,7 +6392,7 @@ class LowerScreenView @JvmOverloads constructor(
             filterPreviewBoxRect.left + 12f,
             filterPreviewBoxRect.top + 34f,
             filterPreviewBoxRect.right - 12f,
-            filterPreviewBoxRect.bottom - 42f
+            filterPreviewBoxRect.bottom - 44f
         )
 
         // 绘制模拟 3DS 触控副屏底色与 UI 元件
@@ -6460,7 +6439,7 @@ class LowerScreenView @JvmOverloads constructor(
 
             textPaint.color = Color.WHITE
             textPaint.typeface = apolloMediumTypeface
-            textPaint.textSize = (sampleBtnH * 0.28f).coerceIn(11f, 14f)
+            textPaint.textSize = 17f
             canvas.drawText(sampleLabels[i], sRect.centerX(), sRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
         }
 
@@ -6484,15 +6463,15 @@ class LowerScreenView @JvmOverloads constructor(
         }
 
         // 底部绿色安全标签
-        val badgeRect = RectF(filterPreviewBoxRect.left + 16f, filterPreviewBoxRect.bottom - 36f, filterPreviewBoxRect.right - 16f, filterPreviewBoxRect.bottom - 10f)
+        val badgeRect = RectF(filterPreviewBoxRect.left + 16f, filterPreviewBoxRect.bottom - 38f, filterPreviewBoxRect.right - 16f, filterPreviewBoxRect.bottom - 8f)
         paint.style = Paint.Style.FILL
         paint.color = Color.parseColor("#065F46")
         canvas.drawRoundRect(badgeRect, 6f, 6f, paint)
 
         textPaint.color = Color.parseColor("#34D399")
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 12f
-        canvas.drawText("✔ 触屏底层穿透：零延迟 (FLAG_NOT_TOUCHABLE)", badgeRect.centerX(), badgeRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+        textPaint.textSize = 16f
+        canvas.drawText("✔ 触屏底层穿透 · 零延迟", badgeRect.centerX(), badgeRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         drawSubPanelBottomBar(canvas, w, h, bottomBarH, "◀ 返回高级设置 (B)")
     }
@@ -6504,14 +6483,14 @@ class LowerScreenView @JvmOverloads constructor(
         h: Float,
         bottomBarH: Float
     ) {
-        val headerH = (innerPanel.height() * 0.11f).coerceIn(36f, 46f)
+        val headerH = (innerPanel.height() * 0.11f).coerceIn(40f, 48f)
         val headerTop = innerPanel.top + 8f
 
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (headerH * 0.52f).coerceIn(16f, 22f)
+        textPaint.textSize = 26f
         textPaint.color = currentTheme.cursorMainColor
         textPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("📺 3DS 上屏 (主屏) 复古液晶滤镜", innerPanel.centerX(), headerTop + headerH * 0.55f, textPaint)
+        canvas.drawText("📺 3DS 上屏 (主屏) 复古液晶滤镜", innerPanel.centerX(), headerTop + 33f, textPaint)
 
         val contentTop = headerTop + headerH + 8f
         val contentBottom = innerPanel.bottom - 12f
@@ -6527,57 +6506,47 @@ class LowerScreenView @JvmOverloads constructor(
 
         // ===== 左侧控制卡片 (3 层垂直堆叠) =====
         val cardGap = 8f
-        val toggleH = (contentH * 0.34f).coerceIn(68f, 96f)
-        val presetH = (contentH * 0.40f).coerceIn(76f, 110f)
+        val toggleH = (contentH * 0.34f).coerceIn(76f, 105f)
+        val presetH = (contentH * 0.40f).coerceIn(86f, 120f)
         val opacityH = contentH - toggleH - presetH - cardGap * 2f
 
-        // 1. 策略与总开关卡片 (双行：智能 2D 识别 + 全局强制总开关)
+        // 1. 策略与总开关卡片 (双行：智能 2D 识别 + 全局强制总开关，去除多余发虚说明，大字高对比呈现)
         val toggleRect = RectF(contentLeft, contentTop, contentLeft + leftW, contentTop + toggleH)
         val isAnyActive = mainScreenRetroFilterAuto2D || mainScreenRetroFilterEnabled
         draw3dsSculptedDockButton(canvas, toggleRect, 14f, isPrimary = isAnyActive, accentOverride = if (isAnyActive) Color.parseColor("#0284C7") else Color.parseColor("#64748B"))
 
         val rowH = toggleH / 2f
         // Row 1: 智能 2D 识别 (推荐)
-        mainFilterAuto2DSwitchRect.set(toggleRect.right - 130f, toggleRect.top + 6f, toggleRect.right - 10f, toggleRect.top + rowH - 6f)
-        draw3dsSculptedDockButton(canvas, mainFilterAuto2DSwitchRect, 8f, isPrimary = true, accentOverride = if (mainScreenRetroFilterAuto2D) Color.parseColor("#059669") else Color.parseColor("#475569"))
+        mainFilterAuto2DSwitchRect.set(toggleRect.right - 140f, toggleRect.top + 7f, toggleRect.right - 10f, toggleRect.top + rowH - 7f)
+        draw3dsSculptedDockButton(canvas, mainFilterAuto2DSwitchRect, 8f, isPrimary = true, accentOverride = if (mainScreenRetroFilterAuto2D) Color.parseColor("#059669") else Color.parseColor("#475569"), isSolid = true)
 
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (rowH * 0.36f).coerceIn(12f, 15f)
+        textPaint.textSize = 20f
         textPaint.color = currentTheme.textPrimaryColor
-        canvas.drawText("✨ 智能 2D 识别 (推荐：冒险岛/GBA等自动开)", toggleRect.left + 14f, toggleRect.top + rowH * 0.45f, textPaint)
-
-        textPaint.typeface = apolloRegularTypeface
-        textPaint.textSize = (rowH * 0.26f).coerceIn(10f, 12f)
-        textPaint.color = currentTheme.textSecondaryColor
-        canvas.drawText("2D 贴图自动生效填补发糊，3D 游戏保持多倍超清渲染", toggleRect.left + 14f, toggleRect.top + rowH * 0.85f, textPaint)
+        canvas.drawText("✨ 智能 2D 识别 (推荐)", toggleRect.left + 16f, toggleRect.top + rowH * 0.5f - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         textPaint.textAlign = Paint.Align.CENTER
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (mainFilterAuto2DSwitchRect.height() * 0.45f).coerceIn(11f, 14f)
+        textPaint.textSize = 18f
         textPaint.color = Color.WHITE
         val auto2dText = if (mainScreenRetroFilterAuto2D) "✔ 智能开启" else "✖ 智能关闭"
         canvas.drawText(auto2dText, mainFilterAuto2DSwitchRect.centerX(), mainFilterAuto2DSwitchRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         // Row 2: 全局强制总开关
         val row2Top = toggleRect.top + rowH
-        mainFilterGlobalSwitchRect.set(toggleRect.right - 130f, row2Top + 6f, toggleRect.right - 10f, toggleRect.bottom - 6f)
-        draw3dsSculptedDockButton(canvas, mainFilterGlobalSwitchRect, 8f, isPrimary = true, accentOverride = if (mainScreenRetroFilterEnabled) Color.parseColor("#0284C7") else Color.parseColor("#475569"))
+        mainFilterGlobalSwitchRect.set(toggleRect.right - 140f, row2Top + 7f, toggleRect.right - 10f, toggleRect.bottom - 7f)
+        draw3dsSculptedDockButton(canvas, mainFilterGlobalSwitchRect, 8f, isPrimary = true, accentOverride = if (mainScreenRetroFilterEnabled) Color.parseColor("#0284C7") else Color.parseColor("#475569"), isSolid = true)
 
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (rowH * 0.36f).coerceIn(12f, 15f)
+        textPaint.textSize = 20f
         textPaint.color = currentTheme.textPrimaryColor
-        canvas.drawText("🟢 全局强制开关 (所有游戏均启用滤镜)", toggleRect.left + 14f, row2Top + rowH * 0.45f, textPaint)
-
-        textPaint.typeface = apolloRegularTypeface
-        textPaint.textSize = (rowH * 0.26f).coerceIn(10f, 12f)
-        textPaint.color = currentTheme.textSecondaryColor
-        canvas.drawText("无视游戏类型，主屏 100% 挂载硬件液晶次像素微层", toggleRect.left + 14f, row2Top + rowH * 0.85f, textPaint)
+        canvas.drawText("🟢 全局强制开关", toggleRect.left + 16f, row2Top + rowH * 0.5f - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         textPaint.textAlign = Paint.Align.CENTER
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = (mainFilterGlobalSwitchRect.height() * 0.45f).coerceIn(11f, 14f)
+        textPaint.textSize = 18f
         textPaint.color = Color.WHITE
         val globalText = if (mainScreenRetroFilterEnabled) "✔ 全局开启" else "✖ 全局关闭"
         canvas.drawText(globalText, mainFilterGlobalSwitchRect.centerX(), mainFilterGlobalSwitchRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -6589,11 +6558,11 @@ class LowerScreenView @JvmOverloads constructor(
 
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 14f
+        textPaint.textSize = 18f
         textPaint.color = currentTheme.cursorMainColor
-        canvas.drawText("📺 主屏滤镜风格 (4 款经典微液晶预设)", presetRect.left + 14f, presetRect.top + 20f, textPaint)
+        canvas.drawText("📺 主屏滤镜风格预设", presetRect.left + 14f, presetRect.top + 22f, textPaint)
 
-        val btnGridTop = presetRect.top + 30f
+        val btnGridTop = presetRect.top + 32f
         val btnGridH = presetRect.bottom - btnGridTop - 8f
         val btnGridW = presetRect.width() - 20f
         val btnGapX = 8f
@@ -6602,7 +6571,7 @@ class LowerScreenView @JvmOverloads constructor(
         val btnH = (btnGridH - btnGapY) / 2f
 
         val presetTypes = arrayOf("LCD_3X", "DOT_MATRIX", "SCANLINE", "CRT_APERTURE")
-        val presetNames = arrayOf("LCD 3X 经典次像素 ★", "细密点阵 (Dot Matrix)", "复古微扫描线", "街机光栅条纹")
+        val presetNames = arrayOf("LCD 3X 经典", "细密点阵 (Dot)", "复古微扫描线", "街机光栅条纹")
         val presetColors = intArrayOf(
             Color.parseColor("#0284C7"),
             Color.parseColor("#10B981"),
@@ -6619,11 +6588,11 @@ class LowerScreenView @JvmOverloads constructor(
             mainFilterTypeRects[i].set(br)
 
             val isSelected = (mainScreenRetroFilterType == presetTypes[i])
-            draw3dsSculptedDockButton(canvas, br, 10f, isPrimary = isSelected, accentOverride = if (isSelected) presetColors[i] else Color.parseColor("#94A3B8"), drawOutline = !isSelected)
+            draw3dsSculptedDockButton(canvas, br, 10f, isPrimary = isSelected, accentOverride = if (isSelected) presetColors[i] else Color.parseColor("#94A3B8"), drawOutline = !isSelected, isSolid = isSelected)
 
             textPaint.textAlign = Paint.Align.CENTER
             textPaint.typeface = if (isSelected) apolloMediumTypeface else apolloRegularTypeface
-            textPaint.textSize = (btnH * 0.42f).coerceIn(12f, 15f)
+            textPaint.textSize = 18f
             textPaint.color = if (isSelected) Color.WHITE else currentTheme.textPrimaryColor
             val label = if (isSelected) "✔ ${presetNames[i]}" else presetNames[i]
             canvas.drawText(label, br.centerX(), br.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
@@ -6636,12 +6605,12 @@ class LowerScreenView @JvmOverloads constructor(
 
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 14f
+        textPaint.textSize = 18f
         textPaint.color = currentTheme.cursorMainColor
-        canvas.drawText("💡 主屏滤镜浓度 (针对 2D 推荐通透 20%)", opacityRect.left + 14f, opacityRect.top + 20f, textPaint)
+        canvas.drawText("💡 主屏滤镜浓度", opacityRect.left + 14f, opacityRect.top + 22f, textPaint)
 
-        val opBtnTop = opacityRect.top + 28f
-        val opBtnH = (opacityRect.bottom - opBtnTop - 8f).coerceAtLeast(24f)
+        val opBtnTop = opacityRect.top + 30f
+        val opBtnH = (opacityRect.bottom - opBtnTop - 8f).coerceAtLeast(26f)
         val opValues = intArrayOf(10, 20, 30, 40)
         val opLabels = arrayOf("10% 微弱", "20% 推荐★", "30% 鲜明", "40% 浓郁")
         val opBtnW = (opacityRect.width() - 20f - 8f * 3f) / 4f
@@ -6652,68 +6621,64 @@ class LowerScreenView @JvmOverloads constructor(
             mainFilterOpacityRects[i].set(obr)
 
             val isSelected = (mainScreenRetroFilterOpacity == opValues[i])
-            draw3dsSculptedDockButton(canvas, obr, 8f, isPrimary = isSelected, accentOverride = if (isSelected) currentTheme.cursorMainColor else Color.parseColor("#94A3B8"), drawOutline = !isSelected)
+            draw3dsSculptedDockButton(canvas, obr, 8f, isPrimary = isSelected, accentOverride = if (isSelected) currentTheme.cursorMainColor else Color.parseColor("#94A3B8"), drawOutline = !isSelected, isSolid = isSelected)
 
             textPaint.textAlign = Paint.Align.CENTER
             textPaint.typeface = if (isSelected) apolloMediumTypeface else apolloRegularTypeface
-            textPaint.textSize = (opBtnH * 0.40f).coerceIn(11f, 14f)
+            textPaint.textSize = 18f
             textPaint.color = if (isSelected) Color.WHITE else currentTheme.textPrimaryColor
             val label = if (isSelected) "✔ ${opLabels[i]}" else opLabels[i]
             canvas.drawText(label, obr.centerX(), obr.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
         }
 
         // ===== 右侧：3DS 主屏实时模拟预览窗 =====
-        mainFilterPreviewBoxRect.set(rightLeft, contentTop, rightLeft + rightW, contentTop + contentH)
-        draw3dsSculptedDockButton(canvas, mainFilterPreviewBoxRect, 16f, isPrimary = false)
+        filterPreviewBoxRect.set(rightLeft, contentTop, rightLeft + rightW, contentTop + contentH)
+        draw3dsSculptedDockButton(canvas, filterPreviewBoxRect, 16f, isPrimary = false)
 
         // 预览窗标题
         textPaint.textAlign = Paint.Align.CENTER
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 14f
+        textPaint.textSize = 18f
         textPaint.color = currentTheme.cursorMainColor
-        canvas.drawText("📺 3DS 主屏 (上屏) 模拟实时效果", mainFilterPreviewBoxRect.centerX(), mainFilterPreviewBoxRect.top + 22f, textPaint)
+        canvas.drawText("📺 3DS 主屏模拟实时效果", filterPreviewBoxRect.centerX(), filterPreviewBoxRect.top + 22f, textPaint)
 
         val previewScreenRect = RectF(
-            mainFilterPreviewBoxRect.left + 12f,
-            mainFilterPreviewBoxRect.top + 34f,
-            mainFilterPreviewBoxRect.right - 12f,
-            mainFilterPreviewBoxRect.bottom - 42f
+            filterPreviewBoxRect.left + 12f,
+            filterPreviewBoxRect.top + 34f,
+            filterPreviewBoxRect.right - 12f,
+            filterPreviewBoxRect.bottom - 44f
         )
 
-        // 绘制模拟 3DS 上屏 2D 游戏场景 (蓝天、草地与像素平台)
+        // 模拟 3DS 经典上屏马里奥游戏世界
         paint.style = Paint.Style.FILL
-        paint.shader = LinearGradient(
-            0f, previewScreenRect.top, 0f, previewScreenRect.bottom,
-            Color.parseColor("#0284C7"), Color.parseColor("#38BDF8"), Shader.TileMode.CLAMP
-        )
+        paint.color = Color.parseColor("#0284C7")
         canvas.drawRoundRect(previewScreenRect, 10f, 10f, paint)
-        paint.shader = null
 
-        // 绿地草坪
-        val groundTop = previewScreenRect.bottom - previewScreenRect.height() * 0.32f
+        // 模拟草地地面
+        val groundH = previewScreenRect.height() * 0.32f
         paint.color = Color.parseColor("#15803D")
-        canvas.drawRect(previewScreenRect.left, groundTop, previewScreenRect.right, previewScreenRect.bottom, paint)
+        canvas.drawRect(previewScreenRect.left, previewScreenRect.bottom - groundH, previewScreenRect.right, previewScreenRect.bottom, paint)
 
-        // 模拟 2D 像素砖块与枫叶/金币 [ ? ] [ 🍁 ] [ ? ]
-        val blockW = (previewScreenRect.width() * 0.18f).coerceIn(28f, 44f)
-        val blockH = blockW
-        val blockY = previewScreenRect.top + previewScreenRect.height() * 0.32f
-        val blockColors = intArrayOf(Color.parseColor("#D97706"), Color.parseColor("#E11D48"), Color.parseColor("#D97706"))
-        val blockIcons = arrayOf("?", "🍁", "?")
+        // 模拟问号方块与砖块
+        val blockH = 26f
+        val blockW = 26f
+        val blockY = previewScreenRect.centerY() - 10f
+        val blockStartX = previewScreenRect.centerX() - blockW * 1.5f - 6f
+        val blockColors = intArrayOf(Color.parseColor("#EA580C"), Color.parseColor("#DC2626"), Color.parseColor("#EA580C"))
+        val blockChars = arrayOf("?", "★", "?")
         for (b in 0 until 3) {
-            val bx = previewScreenRect.centerX() - blockW * 1.8f + b * (blockW + 12f)
-            val bRect = RectF(bx, blockY, bx + blockW, blockY + blockH)
+            val bx = blockStartX + b * (blockW + 6f)
             paint.color = blockColors[b]
-            canvas.drawRoundRect(bRect, 4f, 4f, paint)
+            canvas.drawRoundRect(RectF(bx, blockY, bx + blockW, blockY + blockH), 4f, 4f, paint)
             textPaint.color = Color.WHITE
             textPaint.typeface = apolloMediumTypeface
-            textPaint.textSize = (blockH * 0.55f).coerceIn(12f, 18f)
-            canvas.drawText(blockIcons[b], bRect.centerX(), bRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+            textPaint.textSize = 16f
+            canvas.drawText(blockChars[b], bx + blockW / 2f, blockY + blockH / 2f - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
         }
 
-        // 叠加实际的滤镜 Shader 颗粒纹理！
-        val isEffective = mainScreenRetroFilterEnabled || mainScreenRetroFilterAuto2D
-        if (isEffective) {
+        // 叠加主屏滤镜纹理
+        val mainActive = mainScreenRetroFilterAuto2D || mainScreenRetroFilterEnabled
+        if (mainActive) {
             if (mainPreviewShader == null || lastMainPreviewType != mainScreenRetroFilterType || lastMainPreviewOpacity != mainScreenRetroFilterOpacity) {
                 lastMainPreviewType = mainScreenRetroFilterType
                 lastMainPreviewOpacity = mainScreenRetroFilterOpacity
@@ -6731,17 +6696,16 @@ class LowerScreenView @JvmOverloads constructor(
             canvas.restore()
         }
 
-        // 底部状态提示标签
-        val badgeRect = RectF(mainFilterPreviewBoxRect.left + 16f, mainFilterPreviewBoxRect.bottom - 36f, mainFilterPreviewBoxRect.right - 16f, mainFilterPreviewBoxRect.bottom - 10f)
+        // 底部微液晶微层激活标签
+        val badgeRect = RectF(filterPreviewBoxRect.left + 16f, filterPreviewBoxRect.bottom - 38f, filterPreviewBoxRect.right - 16f, filterPreviewBoxRect.bottom - 8f)
         paint.style = Paint.Style.FILL
-        paint.color = if (isEffective) Color.parseColor("#065F46") else Color.parseColor("#7F1D1D")
+        paint.color = Color.parseColor("#065F46")
         canvas.drawRoundRect(badgeRect, 6f, 6f, paint)
 
-        textPaint.color = if (isEffective) Color.parseColor("#34D399") else Color.parseColor("#FCA5A5")
+        textPaint.color = Color.parseColor("#34D399")
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 12f
-        val badgeText = if (isEffective) "✔ 2D像素点阵填充生效中 · 消除拉大发糊发虚" else "✖ 滤镜已关闭 · 2D 贴图高倍拉大将直接发虚"
-        canvas.drawText(badgeText, badgeRect.centerX(), badgeRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+        textPaint.textSize = 16f
+        canvas.drawText("✔ 2D像素点阵填充 · 消除发糊发虚", badgeRect.centerX(), badgeRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         drawSubPanelBottomBar(canvas, w, h, bottomBarH, "◀ 返回高级设置 (B)")
     }
