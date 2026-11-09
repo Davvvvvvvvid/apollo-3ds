@@ -2708,6 +2708,10 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                     return true
                 }
                 KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    if (lowerScreenView.isAllAppsDrawerOpen) {
+                        lowerScreenView.activateFocusedAppDrawerItem()
+                        return true
+                    }
                     if (lowerScreenView.isSettingsPanelOpen) {
                         lowerScreenView.activateFocusedSettingsCard()
                         return true

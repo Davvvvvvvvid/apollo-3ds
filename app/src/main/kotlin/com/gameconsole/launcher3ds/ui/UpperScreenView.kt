@@ -1828,7 +1828,7 @@ class UpperScreenView @JvmOverloads constructor(
                 val logoBmp = resolveSlotLogo(item) ?: resolveSlotBoxart(item) ?: resolveSlotIcon(item)
                 val cx = stageCenterX + tiltX * 0.4f
                 val floatHeroY = kotlin.math.sin((animPhase + 0.35f) * 1.35f) * 8f
-                val cyOffset = if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) -h * 0.075f else 0f
+                val cyOffset = if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) -h * 0.055f else 0f
                 val cy = stageCenterY + cyOffset + floatHeroY
                 val curRotX = (boxRotAngleX * 0.40f + totalTiltY * 0.25f).coerceIn(-20f, 20f)
 
@@ -1838,7 +1838,7 @@ class UpperScreenView @JvmOverloads constructor(
                 if (logoBmp != null) {
                     val maxLogoW = (w * 0.72f).coerceIn(420f, w * 0.85f)
                     val maxLogoH = if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) {
-                        ((h - topBarH) * 0.58f).coerceIn(200f, h * 0.62f) * bannerPopScale
+                        ((h - topBarH) * 0.62f).coerceIn(210f, h * 0.66f) * bannerPopScale
                     } else {
                         ((h - topBarH) * 0.74f).coerceIn(240f, h * 0.78f) * bannerPopScale
                     }
@@ -1910,17 +1910,15 @@ class UpperScreenView @JvmOverloads constructor(
                     }
                     canvas.restore()
 
-                    // 3) 如果是「Logo+纯字标题」模式：绘制专属主机级立体艺术标题
+                    // 3) 如果是「Logo+纯字标题」模式：绘制极简纯白大字标题（Switch/PS5 风格）
                     if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) {
                         drawCleanStageTitleText(
                             canvas = canvas,
                             w = w,
                             h = h,
-                            titleY = heroRect.bottom + (h * 0.040f).coerceIn(16f, 32f),
+                            titleY = heroRect.bottom + (h * 0.045f).coerceIn(18f, 34f),
                             title = item.title,
-                            subtitle = item.subtitle.ifBlank { item.publisher },
-                            platform = item.getEffectivePlatform(),
-                            accentColor = item.primaryColor
+                            subtitle = item.subtitle.ifBlank { item.publisher }
                         )
                     }
                 }
@@ -2431,15 +2429,19 @@ class UpperScreenView @JvmOverloads constructor(
      * - 水平渐变微光羽化分割线 (AAA 主机级视效装饰)
      * - 精致悬浮平台胶囊标签与厂商副标题
      */
+    /**
+     * 绘制 Logo+文字标题模式下的极简纯粹大字标题：
+     * - 纯白大号加粗字体 (Switch / PS5 顶层无扰极简风)
+     * - 仅保留干净的深邃柔和投影，彻底去除横线、胶囊标签与彩光
+     * - 纯净排版，悬浮高级感
+     */
     private fun drawCleanStageTitleText(
         canvas: Canvas,
         w: Float,
         h: Float,
         titleY: Float,
         title: String,
-        subtitle: String,
-        platform: String = "",
-        accentColor: Int = Color.parseColor("#00B8F0")
+        subtitle: String
     ) {
         val origAlign = statusTextPaint.textAlign
         val origTypeface = statusTextPaint.typeface
@@ -2447,109 +2449,49 @@ class UpperScreenView @JvmOverloads constructor(
         val origColor = statusTextPaint.color
 
         val centerX = w / 2f
-        val baseTitleSize = (h * 0.088f).coerceIn(38f, 58f)
+        val baseTitleSize = (h * 0.082f).coerceIn(36f, 54f)
         statusTextPaint.textAlign = Paint.Align.CENTER
         statusTextPaint.typeface = Typeface.DEFAULT_BOLD
         statusTextPaint.textSize = baseTitleSize
 
-        val maxTitleW = w * 0.86f
+        val maxTitleW = w * 0.88f
         var measuredW = statusTextPaint.measureText(title)
         var effTitleSize = baseTitleSize
         if (measuredW > maxTitleW) {
             val scale = (maxTitleW / measuredW).coerceIn(0.55f, 1f)
-            effTitleSize = (baseTitleSize * scale).coerceAtLeast(26f)
+            effTitleSize = (baseTitleSize * scale).coerceAtLeast(24f)
             statusTextPaint.textSize = effTitleSize
-            measuredW = statusTextPaint.measureText(title)
         }
 
-        val safeY = titleY.coerceAtMost(h - effTitleSize * 1.5f)
+        val safeY = titleY.coerceAtMost(h - effTitleSize * 1.2f)
 
-        // 1) 柔和游戏重音外发光晕 (多层发光)
-        val rGlow = Color.red(accentColor)
-        val gGlow = Color.green(accentColor)
-        val bGlow = Color.blue(accentColor)
-        statusTextPaint.style = Paint.Style.STROKE
-        statusTextPaint.strokeWidth = (effTitleSize * 0.12f).coerceIn(3.5f, 7f)
-        statusTextPaint.color = Color.argb(55, rGlow, gGlow, bGlow)
-        canvas.drawText(title, centerX, safeY, statusTextPaint)
-
-        // 2) 3D 立体深邃环境投影 (模拟游戏主机悬浮字效)
+        // 1) 干净深邃柔和投影 (无论浅色还是深色天空盒背景均清晰立显)
         statusTextPaint.style = Paint.Style.FILL
-        statusTextPaint.color = Color.argb(195, 6, 12, 22)
-        canvas.drawText(title, centerX + 2.5f, safeY + 3.8f, statusTextPaint)
+        statusTextPaint.color = Color.argb(165, 0, 0, 0)
+        canvas.drawText(title, centerX + 2.0f, safeY + 3.0f, statusTextPaint)
 
-        // 3) 晶莹雪白到白银金属垂直渐变 (高饱和通透立体质感)
-        val textTop = safeY - effTitleSize * 0.88f
-        val textBottom = safeY + effTitleSize * 0.15f
-        statusTextPaint.shader = LinearGradient(
-            0f, textTop, 0f, textBottom,
-            Color.WHITE,
-            Color.parseColor("#E0E7FF"),
-            Shader.TileMode.CLAMP
-        )
+        // 2) 极简纯净纯白大字
+        statusTextPaint.color = Color.WHITE
         canvas.drawText(title, centerX, safeY, statusTextPaint)
-        statusTextPaint.shader = null
 
-        // 4) 水平羽化微光分割线 (主机级视效装饰)
-        val lineY = safeY + (effTitleSize * 0.28f).coerceIn(10f, 18f)
-        val lineHalfW = (measuredW * 0.44f).coerceIn(90f, w * 0.38f)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 2.0f
-        paint.shader = LinearGradient(
-            centerX - lineHalfW, lineY, centerX + lineHalfW, lineY,
-            intArrayOf(Color.TRANSPARENT, Color.argb(190, rGlow, gGlow, bGlow), Color.argb(220, 255, 255, 255), Color.argb(190, rGlow, gGlow, bGlow), Color.TRANSPARENT),
-            floatArrayOf(0f, 0.25f, 0.5f, 0.75f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawLine(centerX - lineHalfW, lineY, centerX + lineHalfW, lineY, paint)
-        paint.shader = null
-
-        // 5) 副信息：精致悬浮胶囊标签与厂商信息
-        val subStr = subtitle.ifBlank { "NINTENDO SYSTEM" }
-        val effPlat = platform.ifBlank { "3DS" }
-        val subFontSize = (effTitleSize * 0.42f).coerceIn(14f, 22f)
-        statusTextPaint.textSize = subFontSize
-        statusTextPaint.typeface = Typeface.DEFAULT_BOLD
-
-        val platW = statusTextPaint.measureText(effPlat) + subFontSize * 1.2f
-        val tagH = subFontSize * 1.6f
-        val subTextW = statusTextPaint.measureText(subStr)
-        val totalSubW = platW + 12f + subTextW
-        val subStartX = centerX - totalSubW / 2f
-        val subCenterY = lineY + 12f + tagH / 2f
-
-        if (subCenterY + tagH / 2f <= h - 8f) {
-            // 平台小胶囊
-            val platRect = RectF(subStartX, subCenterY - tagH / 2f, subStartX + platW, subCenterY + tagH / 2f)
-            paint.style = Paint.Style.FILL
-            paint.color = Color.argb(85, 15, 23, 42)
-            canvas.drawRoundRect(platRect, tagH / 2f, tagH / 2f, paint)
-
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1.2f
-            paint.color = Color.argb(160, rGlow, gGlow, bGlow)
-            canvas.drawRoundRect(platRect, tagH / 2f, tagH / 2f, paint)
-
-            paint.style = Paint.Style.FILL
-            statusTextPaint.color = Color.WHITE
-            statusTextPaint.textAlign = Paint.Align.CENTER
-            val platCy = platRect.centerY() - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f
-            canvas.drawText(effPlat, platRect.centerX(), platCy, statusTextPaint)
-
-            // 副标题 / 厂商名称
-            statusTextPaint.textAlign = Paint.Align.LEFT
-            statusTextPaint.color = Color.argb(180, 8, 14, 24)
-            val subTextY = platCy
-            canvas.drawText(subStr, subStartX + platW + 12f + 1f, subTextY + 1.2f, statusTextPaint)
-            statusTextPaint.color = Color.parseColor("#E2E8F0")
-            canvas.drawText(subStr, subStartX + platW + 12f, subTextY, statusTextPaint)
+        // 3) 副标题（纯文字，如有）
+        if (subtitle.isNotBlank()) {
+            val subSize = (effTitleSize * 0.44f).coerceIn(14f, 22f)
+            statusTextPaint.textSize = subSize
+            statusTextPaint.typeface = Typeface.DEFAULT
+            val subY = safeY + subSize * 1.55f
+            if (subY <= h - 10f) {
+                statusTextPaint.color = Color.argb(130, 0, 0, 0)
+                canvas.drawText(subtitle, centerX + 1.2f, subY + 1.8f, statusTextPaint)
+                statusTextPaint.color = Color.parseColor("#CBD5E1") // 柔和银灰白
+                canvas.drawText(subtitle, centerX, subY, statusTextPaint)
+            }
         }
 
         statusTextPaint.textAlign = origAlign
         statusTextPaint.typeface = origTypeface
         statusTextPaint.textSize = origSize
         statusTextPaint.color = origColor
-        statusTextPaint.style = Paint.Style.FILL
     }
 
     private fun draw3dsSpeechBubblePlate(

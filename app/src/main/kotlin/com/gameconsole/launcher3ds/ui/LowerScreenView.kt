@@ -483,6 +483,7 @@ class LowerScreenView @JvmOverloads constructor(
     var appsScrollY: Float = 0f
     var targetAppsScrollY: Float = 0f
     var maxAppsScrollY: Float = 0f
+    var appsCursorIndex: Int = 0
 
     var selectedTopIconIndex: Int = -1
         set(value) {
@@ -1010,8 +1011,7 @@ class LowerScreenView @JvmOverloads constructor(
         val gridBottom = h - bottomBarH - 6f
 
         if (isAllAppsDrawerOpen) {
-            drawAllAppsDrawerPanel(canvas, w, h, gridTop, gridBottom, bottomBarH)
-            drawAuthenticBottomActionBar(canvas, w, h, bottomBarH)
+            drawAllAppsDrawerPanel(canvas, w, h)
         } else if (isSettingsPanelOpen) {
             // 原版 3DS 风格的下屏内嵌「视频滤镜与系统设置」面板（开启时上屏视频继续实时播放预览！）
             drawAuthentic3dsSettingsPanel(canvas, w, h, gridTop, gridBottom, bottomBarH)
@@ -1077,15 +1077,7 @@ class LowerScreenView @JvmOverloads constructor(
             drawBeveledButton(canvas, homeSettingsRect, currentTheme.bottomBarButtonColor, currentTheme.slotBorderColor, 14f)
         }
 
-        // 1: 全部已安装应用·副屏抽屉
-        curLeft += smallBtnW + gap
-        allAppsBtnRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
-        val appsFill = if (isAllAppsDrawerOpen) Color.parseColor("#E0F2FE") else currentTheme.slotFillColor
-        val appsBorder = if (isAllAppsDrawerOpen) Color.parseColor("#0284C7") else currentTheme.slotBorderColor
-        drawBeveledButton(canvas, allAppsBtnRect, appsFill, appsBorder, 14f, isPrimary = isAllAppsDrawerOpen)
-        drawAllAppsDrawerButtonSymbol(canvas, allAppsBtnRect, isAllAppsDrawerOpen)
-
-        // 2: 视频原声播放切换
+        // 1: 视频原声播放切换
         curLeft += smallBtnW + gap
         videoAudioBtnRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         val audioBtnFill = if (isVideoAudioEnabled) Color.parseColor("#FFE4E6") else currentTheme.slotFillColor
@@ -1111,7 +1103,7 @@ class LowerScreenView @JvmOverloads constructor(
             canvas.drawBitmap(badgeBmp, null, RectF(curLeft + pad, padY + pad, curLeft + smallBtnW - pad, barH - padY - pad), bitmapPaint)
         }
 
-        // 4: 游戏库与模拟器系统设置 (倒数第 3 个图标，方案 A：专注 ROM 路径、媒体库挂载与模拟器内核设置)
+        // 4: 游戏库与模拟器系统设置 (倒数第 4 个图标，方案 A：专注 ROM 路径、媒体库挂载与模拟器内核设置)
         curLeft += smallBtnW + gap
         appletRects[1].set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         val isAdvActive = isSettingsPanelOpen && (settingsSubPanel == SettingsSubPanel.ADVANCED_SETTINGS || settingsTabIndex == 3)
@@ -1120,13 +1112,21 @@ class LowerScreenView @JvmOverloads constructor(
         drawBeveledButton(canvas, appletRects[1], advFill, advBorder, 14f, isPrimary = isAdvActive)
         drawGameLibrarySettingsIcon(canvas, RectF(curLeft + smallBtnW * 0.12f, padY + smallBtnW * 0.12f, curLeft + smallBtnW * 0.88f, barH - padY - smallBtnW * 0.12f))
 
-        // 5: [-] 缩小网格按钮 (倒数第 2 个图标)
+        // 5: 全部已安装应用·副屏抽屉 (倒数第 3 个图标)
+        curLeft += smallBtnW + gap
+        allAppsBtnRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
+        val appsFill = if (isAllAppsDrawerOpen) Color.parseColor("#E0F2FE") else currentTheme.slotFillColor
+        val appsBorder = if (isAllAppsDrawerOpen) Color.parseColor("#0284C7") else currentTheme.slotBorderColor
+        drawBeveledButton(canvas, allAppsBtnRect, appsFill, appsBorder, 14f, isPrimary = isAllAppsDrawerOpen)
+        drawAllAppsDrawerButtonSymbol(canvas, allAppsBtnRect, isAllAppsDrawerOpen)
+
+        // 6: [-] 缩小网格按钮 (倒数第 2 个图标)
         curLeft += smallBtnW + gap
         zoomOutRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         drawBeveledButton(canvas, zoomOutRect, currentTheme.slotFillColor, currentTheme.slotBorderColor, 14f)
         drawZoomButtonSymbol(canvas, zoomOutRect, isZoomIn = false)
 
-        // 6: [+] 放大网格按钮 (倒数第 1 个图标)
+        // 7: [+] 放大网格按钮 (倒数第 1 个图标)
         curLeft += smallBtnW + gap
         zoomInRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         drawBeveledButton(canvas, zoomInRect, currentTheme.slotFillColor, currentTheme.slotBorderColor, 14f)
@@ -1136,11 +1136,11 @@ class LowerScreenView @JvmOverloads constructor(
         if (selectedTopIconIndex in 0..7) {
             val targetRect = when (selectedTopIconIndex) {
                 0 -> homeSettingsRect
-                1 -> allAppsBtnRect
-                2 -> videoAudioBtnRect
-                3 -> autoRandomBtnRect
-                4 -> appletRects[0]
-                5 -> appletRects[1]
+                1 -> videoAudioBtnRect
+                2 -> autoRandomBtnRect
+                3 -> appletRects[0]
+                4 -> appletRects[1]
+                5 -> allAppsBtnRect
                 6 -> zoomOutRect
                 else -> zoomInRect
             }
@@ -1148,11 +1148,11 @@ class LowerScreenView @JvmOverloads constructor(
 
             val topLabel = when (selectedTopIconIndex) {
                 0 -> "🏠 HOME菜单·主题与个性化设置 (按A打开)"
-                1 -> "📱 全部已安装应用·副屏抽屉 (按A打开)"
-                2 -> if (isVideoAudioEnabled) "🔊 关闭视频原声·恢复背景音乐 (按A切换)" else "▶ 暂停背景音乐·播放视频原声 (按A切换)"
-                3 -> if (isAutoRandomPlaying) "🎲 自动轮播游戏预览中 [每${autoRandomIntervalSec}秒] (按A停止)" else "🎲 开启自动随机轮播 [每${autoRandomIntervalSec}秒] (按A开启)"
-                4 -> "🏅 桌面徽章屋 (按A打开)"
-                5 -> "⚙ 游戏库与模拟器系统设置 (按A打开)"
+                1 -> if (isVideoAudioEnabled) "🔊 关闭视频原声·恢复背景音乐 (按A切换)" else "🔈 暂停背景音乐·播放视频原声 (按A切换)"
+                2 -> if (isAutoRandomPlaying) "🎲 自动轮播游戏预览中 [每${autoRandomIntervalSec}秒] (按A停止)" else "🎲 开启自动随机轮播 [每${autoRandomIntervalSec}秒] (按A开启)"
+                3 -> "🏅 桌面徽章屋 (按A打开)"
+                4 -> "📂 游戏库与模拟器系统设置 (按A打开)"
+                5 -> "📱 全部已安装应用·副屏抽屉 (按A打开)"
                 6 -> "➖ 缩小游戏图标 (按A执行)"
                 else -> "➕ 放大游戏图标 (按A执行)"
             }
@@ -1444,10 +1444,20 @@ class LowerScreenView @JvmOverloads constructor(
         allInstalledApps = listener?.onGetAllInstalledApps() ?: emptyList()
         preloadIcons(allInstalledApps)
         isAllAppsDrawerOpen = true
+        appsCursorIndex = 0
         appsScrollY = 0f
         targetAppsScrollY = 0f
         SoundEffectEngine.playSelectApplet()
         invalidate()
+    }
+
+    fun activateFocusedAppDrawerItem() {
+        if (!isAllAppsDrawerOpen) return
+        if (appsCursorIndex in allInstalledApps.indices) {
+            val app = allInstalledApps[appsCursorIndex]
+            SoundEffectEngine.playLaunchGame()
+            listener?.onLaunchInstalledAppRequested(app.packageName, app.activityName, launchOnSubscreen = true)
+        }
     }
 
     fun closeAllAppsDrawer() {
@@ -1467,98 +1477,119 @@ class LowerScreenView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * 全屏沉浸式弹出已安装应用列表：
+     * - 原生 Android 启动器抽屉体验 (覆盖全屏 0f..w, 0f..h)
+     * - 优雅深色微磨砂质感背景 (高对比度纯净排版，完美兼容任何主题)
+     * - 4 列标准大图标网格，居中 64x64px 平滑圆角图标与下沉软投影
+     * - 图标下方纯白加粗居中应用名称 (带清晰立体阴影)
+     * - 点击在副屏全屏启动，长按固定快捷方式到桌面网格
+     */
     private fun drawAllAppsDrawerPanel(
         canvas: Canvas,
         w: Float,
-        h: Float,
-        panelTop: Float,
-        panelBottom: Float,
-        bottomBarH: Float
+        h: Float
     ) {
-        val sideMargin = 16f
-        stageWellRect.set(sideMargin, panelTop, w - sideMargin, panelBottom)
-        val stageRadius = 26f
-
-        // 1. 底盘投影
+        // 1. 全屏沉浸式微磨砂深色渐变背景（现代 Android 启动器抽屉质感）
         paint.style = Paint.Style.FILL
-        paint.color = Color.argb(32, 0, 0, 0)
-        canvas.drawRoundRect(
-            RectF(stageWellRect.left, stageWellRect.top + 3f, stageWellRect.right, stageWellRect.bottom + 3f),
-            stageRadius, stageRadius, paint
-        )
-
-        // 2. 底盘渐变背景卡片
-        val isDark = calculateColorLuminance(currentTheme.bottomBarButtonColor) < 0.45f
-        val bgTop = if (isDark) blendColor(currentTheme.lowerBgTop, Color.WHITE, 0.12f) else blendColor(currentTheme.slotFillColor, Color.WHITE, 0.45f)
-        val bgBottom = currentTheme.lowerBgBottom
-        paint.shader = LinearGradient(
-            0f, stageWellRect.top, 0f, stageWellRect.bottom,
-            bgTop, bgBottom, Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(stageWellRect, stageRadius, stageRadius, paint)
+        val bgTop = Color.argb(246, 15, 23, 42)    // 深邃深灰蓝 (Tailwind Slate-900)
+        val bgBottom = Color.argb(252, 9, 14, 26)  // 接近全黑 (Slate-950)
+        paint.shader = LinearGradient(0f, 0f, 0f, h, bgTop, bgBottom, Shader.TileMode.CLAMP)
+        canvas.drawRect(0f, 0f, w, h, paint)
         paint.shader = null
 
-        // 3. Header 区域 (高度 64px)
-        val headerH = 64f
-        val headerTop = stageWellRect.top + 8f
-        val headerBottom = headerTop + headerH
-        val headerLeft = stageWellRect.left + 18f
-        val headerRight = stageWellRect.right - 18f
+        // 顶部高光微发光流光线 (1.5px)
+        paint.color = Color.argb(55, 56, 189, 248)
+        paint.strokeWidth = 2f
+        paint.style = Paint.Style.STROKE
+        canvas.drawLine(0f, 1f, w, 1f, paint)
+        paint.style = Paint.Style.FILL
+
+        // 2. 顶部原生 Android 抽屉 Header (高度 68px)
+        val headerH = 68f
+        val headerLeft = 24f
+        val headerRight = w - 24f
 
         // 右上角关闭按钮 [ ✕ 关闭 ]
         val closeBtnW = 96f
-        val closeBtnH = 40f
-        appsCloseBtnRect.set(headerRight - closeBtnW, headerTop + (headerH - closeBtnH) / 2f, headerRight, headerTop + (headerH + closeBtnH) / 2f)
+        val closeBtnH = 38f
+        appsCloseBtnRect.set(headerRight - closeBtnW, (headerH - closeBtnH) / 2f, headerRight, (headerH + closeBtnH) / 2f)
         draw3dsSculptedDockButton(
             canvas = canvas,
             r = appsCloseBtnRect,
             radius = closeBtnH * 0.44f,
             isPrimary = false,
-            accentOverride = Color.parseColor("#94A3B8"),
+            accentOverride = Color.parseColor("#475569"),
             drawOutline = true
         )
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 17f
-        textPaint.color = if (isDark) Color.WHITE else Color.parseColor("#334155")
+        textPaint.textSize = 15f
+        textPaint.color = Color.WHITE
         textPaint.textAlign = Paint.Align.CENTER
         canvas.drawText("✕ 关闭", appsCloseBtnRect.centerX(), appsCloseBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         // Header 左侧标题与副标题
         textPaint.typeface = boldTypeface
-        textPaint.textSize = 24f
-        textPaint.color = currentTheme.textPrimaryColor
+        textPaint.textSize = 22f
+        textPaint.color = Color.WHITE
         textPaint.textAlign = Paint.Align.LEFT
-        val titleText = "📱 全部已安装应用 (Android Apps)"
-        val titleY = headerTop + 28f
-        canvas.drawText(titleText, headerLeft, titleY, textPaint)
+        textPaint.setShadowLayer(4f, 0f, 2f, Color.argb(160, 0, 0, 0))
+        val titleText = "📱 全部应用"
+        canvas.drawText(titleText, headerLeft, 30f, textPaint)
+        textPaint.clearShadowLayer()
 
+        // 标题右侧小胶囊显示应用总数
+        val titleW = textPaint.measureText(titleText)
+        val badgeStr = "${allInstalledApps.size} 款"
+        textPaint.typeface = apolloMediumTypeface
+        textPaint.textSize = 13f
+        val badgeW = textPaint.measureText(badgeStr) + 16f
+        val badgeH = 22f
+        val badgeRect = RectF(headerLeft + titleW + 12f, 13f, headerLeft + titleW + 12f + badgeW, 13f + badgeH)
+        paint.color = Color.argb(60, 56, 189, 248)
+        canvas.drawRoundRect(badgeRect, 11f, 11f, paint)
+        paint.color = Color.parseColor("#38BDF8")
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1f
+        canvas.drawRoundRect(badgeRect, 11f, 11f, paint)
+        paint.style = Paint.Style.FILL
+        textPaint.color = Color.parseColor("#38BDF8")
+        textPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText(badgeStr, badgeRect.centerX(), badgeRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+
+        // 抽屉使用提示
         textPaint.typeface = apolloRegularTypeface
-        textPaint.textSize = 15f
-        textPaint.color = currentTheme.textSecondaryColor
-        val subtitleText = "共 ${allInstalledApps.size} 款应用 · 点击卡片在副屏全屏启动 · 独立副屏多任务"
-        canvas.drawText(subtitleText, headerLeft, headerTop + 54f, textPaint)
+        textPaint.textSize = 13f
+        textPaint.color = Color.parseColor("#94A3B8")
+        textPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("点击图标在副屏直接启动 · 长按固定到副屏桌面", headerLeft, 55f, textPaint)
 
-        // 4. 应用列表区域（裁切并滚动）
-        val listTop = headerBottom + 6f
-        val listBottom = stageWellRect.bottom - 12f
-        val listLeft = stageWellRect.left + 16f
-        val listRight = stageWellRect.right - 16f
+        // 分割线
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1f
+        paint.color = Color.argb(35, 255, 255, 255)
+        canvas.drawLine(headerLeft, headerH, headerRight, headerH, paint)
+        paint.style = Paint.Style.FILL
+
+        // 3. 应用网格区域（标准 4 列 Android 抽屉大图标网格，支持平滑滚动）
+        val listTop = headerH + 10f
+        val listBottom = h - 10f
+        val listLeft = 24f
+        val listRight = w - 24f
         val listAvailW = listRight - listLeft
 
         canvas.save()
         canvas.clipRect(listLeft, listTop, listRight, listBottom)
 
-        // 2 列网格卡片
-        val cols = 2
-        val colGap = 12f
-        val rowGap = 10f
-        val cardW = (listAvailW - colGap * (cols - 1)) / cols
-        val cardH = 82f
+        val cols = 4
+        val colW = listAvailW / cols
+        val cardH = 116f
+        val rowGap = 12f
 
         val totalRows = kotlin.math.ceil(allInstalledApps.size / cols.toFloat()).toInt()
         val totalContentH = totalRows * (cardH + rowGap)
         val viewportH = listBottom - listTop
-        maxAppsScrollY = (totalContentH - viewportH + 20f).coerceAtLeast(0f)
+        maxAppsScrollY = (totalContentH - viewportH + 24f).coerceAtLeast(0f)
         appsScrollY += (targetAppsScrollY - appsScrollY) * 0.35f
 
         val curScroll = appsScrollY
@@ -1567,104 +1598,96 @@ class LowerScreenView @JvmOverloads constructor(
             val app = allInstalledApps[i]
             val row = i / cols
             val col = i % cols
-            val cardTop = listTop - curScroll + row * (cardH + rowGap)
-            val cardBottom = cardTop + cardH
-            if (cardBottom < listTop - 10f || cardTop > listBottom + 10f) continue // 视野外剔除
+            val cellTop = listTop - curScroll + row * (cardH + rowGap)
+            val cellBottom = cellTop + cardH
+            if (cellBottom < listTop - 10f || cellTop > listBottom + 10f) continue // 视野外剔除
 
-            val cardLeft = listLeft + col * (cardW + colGap)
-            val cardRight = cardLeft + cardW
-            val cardRect = RectF(cardLeft, cardTop, cardRight, cardBottom)
+            val cellLeft = listLeft + col * colW
+            val cellRight = cellLeft + colW
+            val cx = cellLeft + colW / 2f
 
-            // 绘制 3D 浮雕卡片
-            val cardR = 16f
+            val isFocused = (appsCursorIndex == i)
+
+            // 焦点/高亮底框
+            if (isFocused) {
+                val focusRect = RectF(cellLeft + 8f, cellTop + 4f, cellRight - 8f, cellBottom - 4f)
+                paint.style = Paint.Style.FILL
+                paint.color = Color.argb(50, 56, 189, 248)
+                canvas.drawRoundRect(focusRect, 14f, 14f, paint)
+
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.6f
+                paint.color = Color.parseColor("#38BDF8")
+                canvas.drawRoundRect(focusRect, 14f, 14f, paint)
+                paint.style = Paint.Style.FILL
+            }
+
+            // 大图标绘制 (64x64px，圆角平滑 16px，柔和下沉阴影)
+            val iconSize = 64f
+            val iconLeft = cx - iconSize / 2f
+            val iconTop = cellTop + 8f
+            val iconRight = cx + iconSize / 2f
+            val iconBottom = iconTop + iconSize
+            val iconRect = RectF(iconLeft, iconTop, iconRight, iconBottom)
+
+            // 图标阴影
             paint.style = Paint.Style.FILL
-            paint.color = Color.argb(18, 0, 0, 0)
-            canvas.drawRoundRect(RectF(cardLeft, cardTop + 2f, cardRight, cardBottom + 2f), cardR, cardR, paint)
+            paint.color = Color.argb(45, 0, 0, 0)
+            canvas.drawRoundRect(RectF(iconLeft, iconTop + 2.5f, iconRight, iconBottom + 2.5f), 16f, 16f, paint)
 
-            val cardBgTop = if (isDark) blendColor(currentTheme.slotFillColor, Color.WHITE, 0.15f) else Color.WHITE
-            val cardBgBottom = if (isDark) blendColor(currentTheme.slotFillColor, Color.BLACK, 0.10f) else blendColor(Color.WHITE, currentTheme.slotFillColor, 0.50f)
-            paint.shader = LinearGradient(0f, cardTop, 0f, cardBottom, cardBgTop, cardBgBottom, Shader.TileMode.CLAMP)
-            canvas.drawRoundRect(cardRect, cardR, cardR, paint)
-            paint.shader = null
-
-            // 描边
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1.2f
-            paint.color = if (isDark) Color.argb(45, 255, 255, 255) else Color.argb(160, 203, 213, 225)
-            canvas.drawRoundRect(cardRect, cardR, cardR, paint)
-            paint.style = Paint.Style.FILL
-
-            // 图标
-            val iconPad = 12f
-            val iconSize = cardH - iconPad * 2f
-            val iconRect = RectF(cardLeft + iconPad, cardTop + iconPad, cardLeft + iconPad + iconSize, cardBottom - iconPad)
             val bmp = iconCache[getIconCacheKey(app)]
             if (bmp != null && !bmp.isRecycled) {
                 canvas.drawBitmap(bmp, null, iconRect, bitmapPaint)
             } else {
-                paint.color = Color.parseColor("#38BDF8")
-                canvas.drawRoundRect(iconRect, 10f, 10f, paint)
+                paint.color = Color.parseColor("#0284C7")
+                canvas.drawRoundRect(iconRect, 16f, 16f, paint)
                 textPaint.color = Color.WHITE
-                textPaint.textSize = 20f
+                textPaint.textSize = 24f
                 textPaint.textAlign = Paint.Align.CENTER
                 canvas.drawText("📱", iconRect.centerX(), iconRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
             }
 
-            // 卡片右侧快捷按键区域：[🖥️主屏] 按键 (w=68, h=32)
-            val btnW = 68f
-            val btnH = 34f
-            val btnMainX = cardRight - iconPad - btnW
-            val btnMainY = cardTop + (cardH - btnH) / 2f
-            val mainBtnRect = RectF(btnMainX, btnMainY, btnMainX + btnW, btnMainY + btnH)
-
-            // 文字区域：居中偏左
-            val textLeft = iconRect.right + 10f
-            val textMaxW = mainBtnRect.left - textLeft - 8f
-
+            // 图标下方应用名称（居中显示，字体清晰加粗纯白带阴影）
             textPaint.typeface = apolloMediumTypeface
-            textPaint.textSize = 17f
-            textPaint.color = if (isDark) Color.WHITE else Color.parseColor("#0F172A")
-            textPaint.textAlign = Paint.Align.LEFT
-            val titleStr = truncateText(app.title, textMaxW, textPaint)
-            canvas.drawText(titleStr, textLeft, cardTop + 33f, textPaint)
-
-            // 包名
-            textPaint.typeface = apolloRegularTypeface
-            textPaint.textSize = 12f
-            textPaint.color = if (isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
-            val pkgStr = truncateText(app.packageName, textMaxW, textPaint)
-            canvas.drawText(pkgStr, textLeft, cardTop + 54f, textPaint)
-
-            // [🖥️主屏] 按钮绘制
-            draw3dsSculptedDockButton(
-                canvas = canvas,
-                r = mainBtnRect,
-                radius = 10f,
-                isPrimary = false,
-                accentOverride = Color.parseColor("#0284C7"),
-                drawOutline = true
-            )
-            textPaint.typeface = apolloMediumTypeface
-            textPaint.textSize = 13f
-            textPaint.color = if (isDark) Color.WHITE else Color.parseColor("#0369A1")
+            textPaint.textSize = 14f
+            textPaint.color = Color.WHITE
             textPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText("🖥️主屏", mainBtnRect.centerX(), mainBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+            textPaint.setShadowLayer(4f, 0f, 1.8f, Color.argb(200, 0, 0, 0))
+
+            val maxTextW = colW - 14f
+            val rawTitle = app.title
+            if (textPaint.measureText(rawTitle) <= maxTextW) {
+                // 单行居中
+                canvas.drawText(rawTitle, cx, iconBottom + 20f, textPaint)
+            } else {
+                // 拆分为至多两行，优雅排版
+                val line1 = truncateText(rawTitle, maxTextW, textPaint)
+                val remaining = if (line1.length < rawTitle.length) rawTitle.substring(line1.length).trim() else ""
+                if (remaining.isNotEmpty()) {
+                    val line2 = truncateText(remaining, maxTextW, textPaint)
+                    canvas.drawText(line1, cx, iconBottom + 16f, textPaint)
+                    canvas.drawText(line2, cx, iconBottom + 32f, textPaint)
+                } else {
+                    canvas.drawText(line1, cx, iconBottom + 20f, textPaint)
+                }
+            }
+            textPaint.clearShadowLayer()
         }
 
         canvas.restore()
 
-        // 绘制滚动指示条
+        // 4. 优雅的右侧滚动指示条 (Android 胶囊滚动条)
         if (maxAppsScrollY > 0f) {
             val trackH = listBottom - listTop
-            val thumbH = (trackH * (viewportH / totalContentH)).coerceIn(24f, trackH * 0.7f)
+            val thumbH = (trackH * (viewportH / totalContentH)).coerceIn(28f, trackH * 0.7f)
             val thumbTop = listTop + (trackH - thumbH) * (curScroll / maxAppsScrollY)
-            val scrollTrackRect = RectF(listRight + 4f, listTop, listRight + 9f, listBottom)
-            paint.color = Color.argb(25, 100, 116, 139)
+            val scrollTrackRect = RectF(listRight + 6f, listTop, listRight + 11f, listBottom)
+            paint.color = Color.argb(25, 255, 255, 255)
             canvas.drawRoundRect(scrollTrackRect, 2.5f, 2.5f, paint)
 
-            paint.color = Color.argb(140, 2, 132, 199)
-            val thumbRect = RectF(listRight + 3.5f, thumbTop, listRight + 9.5f, thumbTop + thumbH)
-            canvas.drawRoundRect(thumbRect, 3f, 3f, paint)
+            paint.color = Color.argb(160, 56, 189, 248)
+            val thumbRect = RectF(listRight + 6f, thumbTop, listRight + 11f, thumbTop + thumbH)
+            canvas.drawRoundRect(thumbRect, 2.5f, 2.5f, paint)
         }
     }
 
@@ -6127,55 +6150,31 @@ class LowerScreenView @JvmOverloads constructor(
         }
 
         val h = height.toFloat()
-        val topBarH = (h * 0.135f).coerceIn(56f, 118f)
-        val bottomBarH = (h * 0.105f).coerceIn(58f, 96f)
-        val panelTop = topBarH + 6f
-        val panelBottom = h - bottomBarH - 6f
-        val headerH = 64f
-        val listTop = panelTop + 8f + headerH + 6f
-        val listBottom = panelBottom - 12f
-        val listLeft = 16f + 16f
-        val listRight = width.toFloat() - 16f - 16f
+        val headerH = 68f
+        val listTop = headerH + 10f
+        val listBottom = h - 10f
+        val listLeft = 24f
+        val listRight = width.toFloat() - 24f
         val listAvailW = listRight - listLeft
 
         if (x in listLeft..listRight && y in listTop..listBottom) {
-            val cols = 2
-            val colGap = 12f
-            val rowGap = 10f
-            val cardW = (listAvailW - colGap * (cols - 1)) / cols
-            val cardH = 82f
+            val cols = 4
+            val colW = listAvailW / cols
+            val cardH = 116f
+            val rowGap = 12f
 
             val relY = y - listTop + appsScrollY
             val row = (relY / (cardH + rowGap)).toInt()
-            val relX = x - listLeft
-            val col = if (relX in 0f..cardW) {
-                0
-            } else if (relX in (cardW + colGap)..(cardW * 2f + colGap)) {
-                1
-            } else {
-                -1
-            }
+            val col = ((x - listLeft) / colW).toInt().coerceIn(0, cols - 1)
 
-            if (col in 0..1 && row >= 0) {
+            if (row >= 0) {
                 val appIdx = row * cols + col
                 if (appIdx in allInstalledApps.indices) {
                     val app = allInstalledApps[appIdx]
-                    val cardLeft = listLeft + col * (cardW + colGap)
-                    val cardRight = cardLeft + cardW
-                    val cardTop = listTop - appsScrollY + row * (cardH + rowGap)
-                    val btnW = 68f
-                    val btnH = 34f
-                    val btnMainX = cardRight - 12f - btnW
-                    val btnMainY = cardTop + (cardH - btnH) / 2f
-                    val mainBtnRect = RectF(btnMainX, btnMainY, btnMainX + btnW, btnMainY + btnH)
-
-                    if (mainBtnRect.contains(x, y)) {
-                        // 在主屏启动
-                        listener?.onLaunchInstalledAppRequested(app.packageName, app.activityName, launchOnSubscreen = false)
-                    } else {
-                        // 在副屏全屏启动
-                        listener?.onLaunchInstalledAppRequested(app.packageName, app.activityName, launchOnSubscreen = true)
-                    }
+                    appsCursorIndex = appIdx
+                    SoundEffectEngine.playLaunchGame()
+                    // 在副屏全屏启动
+                    listener?.onLaunchInstalledAppRequested(app.packageName, app.activityName, launchOnSubscreen = true)
                 }
             }
         }
@@ -6183,34 +6182,30 @@ class LowerScreenView @JvmOverloads constructor(
 
     private fun handleAllAppsDrawerLongPress(x: Float, y: Float) {
         val h = height.toFloat()
-        val topBarH = (h * 0.135f).coerceIn(56f, 118f)
-        val bottomBarH = (h * 0.105f).coerceIn(58f, 96f)
-        val panelTop = topBarH + 6f
-        val panelBottom = h - bottomBarH - 6f
-        val headerH = 64f
-        val listTop = panelTop + 8f + headerH + 6f
-        val listBottom = panelBottom - 12f
-        val listLeft = 16f + 16f
-        val listRight = width.toFloat() - 16f - 16f
+        val headerH = 68f
+        val listTop = headerH + 10f
+        val listBottom = h - 10f
+        val listLeft = 24f
+        val listRight = width.toFloat() - 24f
         val listAvailW = listRight - listLeft
 
         if (x in listLeft..listRight && y in listTop..listBottom) {
-            val cols = 2
-            val colGap = 12f
-            val rowGap = 10f
-            val cardW = (listAvailW - colGap * (cols - 1)) / cols
-            val cardH = 82f
+            val cols = 4
+            val colW = listAvailW / cols
+            val cardH = 116f
+            val rowGap = 12f
 
             val relY = y - listTop + appsScrollY
             val row = (relY / (cardH + rowGap)).toInt()
-            val relX = x - listLeft
-            val col = if (relX in 0f..cardW) 0 else if (relX in (cardW + colGap)..(cardW * 2f + colGap)) 1 else -1
+            val col = ((x - listLeft) / colW).toInt().coerceIn(0, cols - 1)
 
-            if (col in 0..1 && row >= 0) {
+            if (row >= 0) {
                 val appIdx = row * cols + col
                 if (appIdx in allInstalledApps.indices) {
                     val app = allInstalledApps[appIdx]
-                    // 长按将应用快捷方式固定到 3DS 桌面网格
+                    appsCursorIndex = appIdx
+                    SoundEffectEngine.playLaunchGame()
+                    // 长按将应用快捷方式固定到副屏桌面网格
                     listener?.onAddAppToDesktopRequested(app)
                 }
             }
@@ -6251,30 +6246,28 @@ class LowerScreenView @JvmOverloads constructor(
             0 -> SystemAppletType.HOME_SETTINGS
             1 -> SystemAppletType.NONE
             2 -> SystemAppletType.NONE
-            3 -> SystemAppletType.NONE
-            4 -> applets[0]
-            5 -> applets[1]
+            3 -> applets[0]
+            4 -> applets[1]
+            5 -> SystemAppletType.NONE
+            6 -> SystemAppletType.NONE
             else -> SystemAppletType.NONE
         }
         listener?.onTopIconFocused(selectedTopIconIndex, previewApplet)
         invalidate()
     }
 
-    /**
-     * 当焦点在顶栏图标上时按 A 键触发对应功能
-     */
     fun activateFocusedTopIcon(): Boolean {
         if (selectedTopIconIndex !in 0..7) return false
         when (selectedTopIconIndex) {
             0 -> openSettingsPanel(initialTab = 1) // 方案 A：第 1 个图标负责 HOME 桌面、主题与个性化
-            1 -> toggleAllAppsDrawer()             // 📱 全部已安装应用副屏抽屉
-            2 -> listener?.onVideoAudioToggleRequested()
-            3 -> {
+            1 -> listener?.onVideoAudioToggleRequested()
+            2 -> {
                 isAutoRandomPlaying = !isAutoRandomPlaying
                 listener?.onAutoRandomToggled()
             }
-            4 -> listener?.onAppletClicked(applets[0])
-            5 -> listener?.onAppletClicked(applets[1])
+            3 -> listener?.onAppletClicked(applets[0])
+            4 -> listener?.onAppletClicked(applets[1])
+            5 -> toggleAllAppsDrawer()             // 📱 全部已安装应用副屏抽屉 (倒数第 3 个图标)
             6 -> if (gridRows < 6) {
                 gridRows += 1
                 listener?.onZoomChanged(gridRows, zoomIn = false)
@@ -6290,6 +6283,41 @@ class LowerScreenView @JvmOverloads constructor(
     }
 
     fun moveCursorByDpad(dxCols: Int, dyRows: Int) {
+        if (isAllAppsDrawerOpen) {
+            if (allInstalledApps.isNotEmpty()) {
+                val cols = 4
+                val total = allInstalledApps.size
+                var nextIdx = appsCursorIndex
+                if (dxCols != 0) {
+                    nextIdx = (nextIdx + dxCols).coerceIn(0, total - 1)
+                }
+                if (dyRows != 0) {
+                    nextIdx = (nextIdx + dyRows * cols).coerceIn(0, total - 1)
+                }
+                if (nextIdx != appsCursorIndex) {
+                    appsCursorIndex = nextIdx
+                    SoundEffectEngine.playCursorMove()
+
+                    val h = height.toFloat()
+                    val headerH = 68f
+                    val listTop = headerH + 10f
+                    val listBottom = h - 10f
+                    val cardH = 116f
+                    val rowGap = 12f
+                    val row = appsCursorIndex / cols
+                    val itemTop = listTop + row * (cardH + rowGap)
+                    val itemBottom = itemTop + cardH
+                    if (itemTop - appsScrollY < listTop) {
+                        targetAppsScrollY = (itemTop - listTop).coerceIn(0f, maxAppsScrollY)
+                    } else if (itemBottom - appsScrollY > listBottom) {
+                        targetAppsScrollY = (itemBottom - listBottom).coerceIn(0f, maxAppsScrollY)
+                    }
+                    invalidate()
+                }
+            }
+            return
+        }
+
         if (isGameDescriptionOpen) {
             if (dyRows != 0) {
                 targetDescScrollY = (targetDescScrollY + dyRows * 90f).coerceIn(0f, maxDescScrollY)
