@@ -1548,27 +1548,29 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
 
     override fun onToggleUpperBoxartRequested() {
         repo.showUpperBoxart = !repo.showUpperBoxart
-        upperScreenView.upperDisplayMode = repo.upperDisplayMode
-        upperScreenView.showUpperBoxart = repo.showUpperBoxart
-        lowerScreenView.upperDisplayMode = repo.upperDisplayMode
-        lowerScreenView.showUpperBoxart = repo.showUpperBoxart
+        val newMode = if (repo.showUpperBoxart) {
+            if (repo.showUpperLogo) UpperDisplayMode.DUAL_HYBRID else UpperDisplayMode.BOXART_3D
+        } else {
+            if (repo.showUpperLogo) UpperDisplayMode.LOGO_HERO else UpperDisplayMode.CINEMA_PURE
+        }
+        repo.upperDisplayMode = newMode
         SoundEffectEngine.playSelectApplet()
-        val cur = repo.upperDisplayMode
         val desc = if (repo.showUpperBoxart) "📦 3D卡盒展示：已开启" else "📦 3D卡盒展示：已隐藏"
-        Toast.makeText(dialogContext(), "$desc (当前方案: ${cur.shortLabel})", Toast.LENGTH_SHORT).show()
+        Toast.makeText(dialogContext(), "$desc (当前方案: ${newMode.shortLabel})", Toast.LENGTH_SHORT).show()
         syncViewsWithState()
     }
 
     override fun onToggleUpperLogoRequested() {
         repo.showUpperLogo = !repo.showUpperLogo
-        upperScreenView.upperDisplayMode = repo.upperDisplayMode
-        upperScreenView.showUpperLogo = repo.showUpperLogo
-        lowerScreenView.upperDisplayMode = repo.upperDisplayMode
-        lowerScreenView.showUpperLogo = repo.showUpperLogo
+        val newMode = if (repo.showUpperLogo) {
+            if (repo.showUpperBoxart) UpperDisplayMode.DUAL_HYBRID else UpperDisplayMode.LOGO_HERO
+        } else {
+            if (repo.showUpperBoxart) UpperDisplayMode.BOXART_3D else UpperDisplayMode.CINEMA_PURE
+        }
+        repo.upperDisplayMode = newMode
         SoundEffectEngine.playSelectApplet()
-        val cur = repo.upperDisplayMode
         val desc = if (repo.showUpperLogo) "🏷️ 游戏Logo展示：已开启" else "🏷️ 游戏Logo展示：已隐藏"
-        Toast.makeText(dialogContext(), "$desc (当前方案: ${cur.shortLabel})", Toast.LENGTH_SHORT).show()
+        Toast.makeText(dialogContext(), "$desc (当前方案: ${newMode.shortLabel})", Toast.LENGTH_SHORT).show()
         syncViewsWithState()
     }
 

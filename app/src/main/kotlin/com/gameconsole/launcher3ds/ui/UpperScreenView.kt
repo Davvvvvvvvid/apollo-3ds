@@ -263,7 +263,7 @@ class UpperScreenView @JvmOverloads constructor(
     /**
      * 当前上屏主舞台显示方案
      */
-    var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.LOGO_ONLY
+    var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.BOXART_3D
         set(value) {
             if (field != value) {
                 field = value

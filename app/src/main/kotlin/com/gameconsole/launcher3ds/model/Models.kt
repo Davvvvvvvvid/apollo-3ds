@@ -1018,7 +1018,7 @@ enum class UpperDisplayMode(
     CINEMA_PURE(5, "🎬 纯净大屏模式", "纯净大屏", "居中全景视界 · 无遮挡沉浸式视频", "#F59E0B");
 
     companion object {
-        fun fromId(id: Int): UpperDisplayMode = entries.firstOrNull { it.modeId == id } ?: LOGO_ONLY
+        fun fromId(id: Int): UpperDisplayMode = entries.firstOrNull { it.modeId == id } ?: BOXART_3D
 
         fun fromBooleans(showBox: Boolean, showLogo: Boolean): UpperDisplayMode = when {
             !showBox && showLogo -> LOGO_ONLY

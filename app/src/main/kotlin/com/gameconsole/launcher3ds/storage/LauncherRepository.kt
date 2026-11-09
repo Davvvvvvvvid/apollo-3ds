@@ -523,7 +523,7 @@ class LauncherRepository(private val context: Context) {
         private const val KEY_LAST_MOUNTED_MEDIA_DIR = "last_mounted_media_dir"
         private const val KEY_VIDEO_FILTER_ID = "upper_video_filter_id"
         private const val KEY_AUTO_RANDOM_INTERVAL_SEC = "auto_random_interval_sec"
-        private const val KEY_UPPER_DISPLAY_MODE = "upper_display_mode_v2"
+        private const val KEY_UPPER_DISPLAY_MODE = "upper_display_mode_v3"
         private const val KEY_SHOW_UPPER_BOXART = "show_upper_boxart_v1"
         private const val KEY_SHOW_UPPER_LOGO = "show_upper_logo_v2"
         private const val KEY_ENABLED_PLATFORMS = "enabled_platforms_v1"
@@ -1356,52 +1356,28 @@ class LauncherRepository(private val context: Context) {
 
     var showUpperBoxart: Boolean
         get() = prefs.getBoolean(KEY_SHOW_UPPER_BOXART, true)
-        set(value) {
-            prefs.edit().putBoolean(KEY_SHOW_UPPER_BOXART, value).apply()
-            prefs.edit().putInt(KEY_UPPER_DISPLAY_MODE, UpperDisplayMode.fromBooleans(value, showUpperLogo).modeId).apply()
-        }
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_UPPER_BOXART, value).apply()
 
     var showUpperLogo: Boolean
-        get() = prefs.getBoolean(KEY_SHOW_UPPER_LOGO, true) // 默认开启 Logo 显示
-        set(value) {
-            prefs.edit().putBoolean(KEY_SHOW_UPPER_LOGO, value).apply()
-            prefs.edit().putInt(KEY_UPPER_DISPLAY_MODE, UpperDisplayMode.fromBooleans(showUpperBoxart, value).modeId).apply()
-        }
+        get() = prefs.getBoolean(KEY_SHOW_UPPER_LOGO, true)
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_UPPER_LOGO, value).apply()
 
     var upperDisplayMode: UpperDisplayMode
         get() {
             val id = prefs.getInt(KEY_UPPER_DISPLAY_MODE, -1)
-            if (id >= 0) return UpperDisplayMode.fromId(id)
-            return UpperDisplayMode.fromBooleans(showUpperBoxart, showUpperLogo)
+            if (id in 0 until UpperDisplayMode.entries.size) {
+                return UpperDisplayMode.fromId(id)
+            }
+            return UpperDisplayMode.BOXART_3D
         }
         set(mode) {
-            prefs.edit().putInt(KEY_UPPER_DISPLAY_MODE, mode.modeId).apply()
-            when (mode) {
-                UpperDisplayMode.LOGO_ONLY -> {
-                    showUpperBoxart = false
-                    showUpperLogo = true
-                }
-                UpperDisplayMode.LOGO_TITLE -> {
-                    showUpperBoxart = false
-                    showUpperLogo = true
-                }
-                UpperDisplayMode.LOGO_HERO -> {
-                    showUpperBoxart = false
-                    showUpperLogo = true
-                }
-                UpperDisplayMode.BOXART_3D -> {
-                    showUpperBoxart = true
-                    showUpperLogo = false
-                }
-                UpperDisplayMode.DUAL_HYBRID -> {
-                    showUpperBoxart = true
-                    showUpperLogo = true
-                }
-                UpperDisplayMode.CINEMA_PURE -> {
-                    showUpperBoxart = false
-                    showUpperLogo = false
-                }
-            }
+            val showBox = (mode == UpperDisplayMode.BOXART_3D || mode == UpperDisplayMode.DUAL_HYBRID)
+            val showLogo = (mode != UpperDisplayMode.BOXART_3D && mode != UpperDisplayMode.CINEMA_PURE)
+            prefs.edit()
+                .putInt(KEY_UPPER_DISPLAY_MODE, mode.modeId)
+                .putBoolean(KEY_SHOW_UPPER_BOXART, showBox)
+                .putBoolean(KEY_SHOW_UPPER_LOGO, showLogo)
+                .apply()
         }
 
     fun cycleNextUpperDisplayMode(): UpperDisplayMode {

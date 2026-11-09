@@ -195,7 +195,7 @@ class LowerScreenView @JvmOverloads constructor(
             invalidate()
         }
 
-    var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.LOGO_ONLY
+    var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.BOXART_3D
         set(value) {
             field = value
             invalidate()
