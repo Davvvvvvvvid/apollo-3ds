@@ -1490,90 +1490,95 @@ class LowerScreenView @JvmOverloads constructor(
         w: Float,
         h: Float
     ) {
-        // 1. 全屏沉浸式微磨砂深色渐变背景（现代 Android 启动器抽屉质感）
+        // 1. 全屏沉浸式主题渐变背景（与当前 3DS 主题色彩 100% 呼应）
         paint.style = Paint.Style.FILL
-        val bgTop = Color.argb(246, 15, 23, 42)    // 深邃深灰蓝 (Tailwind Slate-900)
-        val bgBottom = Color.argb(252, 9, 14, 26)  // 接近全黑 (Slate-950)
-        paint.shader = LinearGradient(0f, 0f, 0f, h, bgTop, bgBottom, Shader.TileMode.CLAMP)
+        paint.shader = LinearGradient(0f, 0f, 0f, h, currentTheme.lowerBgTop, currentTheme.lowerBgBottom, Shader.TileMode.CLAMP)
         canvas.drawRect(0f, 0f, w, h, paint)
         paint.shader = null
 
-        // 顶部高光微发光流光线 (1.5px)
-        paint.color = Color.argb(55, 56, 189, 248)
-        paint.strokeWidth = 2f
-        paint.style = Paint.Style.STROKE
-        canvas.drawLine(0f, 1f, w, 1f, paint)
-        paint.style = Paint.Style.FILL
+        val isDark = calculateColorLuminance(currentTheme.lowerBgTop) < 0.45f
 
-        // 2. 顶部原生 Android 抽屉 Header (高度 68px)
-        val headerH = 68f
+        // 2. 顶部原生 Android 抽屉 Header (高度 78px，带半透明磨砂质感)
+        val headerH = 78f
         val headerLeft = 24f
         val headerRight = w - 24f
 
-        // 右上角关闭按钮 [ ✕ 关闭 ]
-        val closeBtnW = 96f
-        val closeBtnH = 38f
+        val headerBg = if (isDark) Color.argb(85, 0, 0, 0) else Color.argb(65, 255, 255, 255)
+        paint.color = headerBg
+        canvas.drawRect(0f, 0f, w, headerH, paint)
+
+        // 分割线
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.2f
+        paint.color = if (isDark) Color.argb(40, 255, 255, 255) else Color.argb(45, 0, 0, 0)
+        canvas.drawLine(0f, headerH, w, headerH, paint)
+        paint.style = Paint.Style.FILL
+
+        // 右上角关闭按钮 [ ✕ 关闭 ] (更大、更易触控 110x44px)
+        val closeBtnW = 110f
+        val closeBtnH = 44f
         appsCloseBtnRect.set(headerRight - closeBtnW, (headerH - closeBtnH) / 2f, headerRight, (headerH + closeBtnH) / 2f)
         draw3dsSculptedDockButton(
             canvas = canvas,
             r = appsCloseBtnRect,
             radius = closeBtnH * 0.44f,
             isPrimary = false,
-            accentOverride = Color.parseColor("#475569"),
+            accentOverride = if (isDark) Color.parseColor("#475569") else currentTheme.slotBorderColor,
             drawOutline = true
         )
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 15f
-        textPaint.color = Color.WHITE
+        textPaint.isFakeBoldText = true
+        textPaint.textSize = 17f
+        textPaint.color = if (isDark) Color.WHITE else currentTheme.textPrimaryColor
         textPaint.textAlign = Paint.Align.CENTER
         canvas.drawText("✕ 关闭", appsCloseBtnRect.centerX(), appsCloseBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+        textPaint.isFakeBoldText = false
 
-        // Header 左侧标题与副标题
+        // Header 左侧标题与副标题（加大字号，气派醒目）
         textPaint.typeface = boldTypeface
-        textPaint.textSize = 22f
-        textPaint.color = Color.WHITE
+        textPaint.textSize = 28f
+        textPaint.color = if (isDark) Color.WHITE else currentTheme.textPrimaryColor
         textPaint.textAlign = Paint.Align.LEFT
-        textPaint.setShadowLayer(4f, 0f, 2f, Color.argb(160, 0, 0, 0))
+        if (isDark) {
+            textPaint.setShadowLayer(4f, 0f, 2f, Color.argb(180, 0, 0, 0))
+        } else {
+            textPaint.setShadowLayer(2f, 0f, 1f, Color.argb(90, 255, 255, 255))
+        }
         val titleText = "📱 全部应用"
-        canvas.drawText(titleText, headerLeft, 30f, textPaint)
+        canvas.drawText(titleText, headerLeft, 34f, textPaint)
         textPaint.clearShadowLayer()
 
         // 标题右侧小胶囊显示应用总数
         val titleW = textPaint.measureText(titleText)
         val badgeStr = "${allInstalledApps.size} 款"
         textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 13f
-        val badgeW = textPaint.measureText(badgeStr) + 16f
-        val badgeH = 22f
-        val badgeRect = RectF(headerLeft + titleW + 12f, 13f, headerLeft + titleW + 12f + badgeW, 13f + badgeH)
-        paint.color = Color.argb(60, 56, 189, 248)
-        canvas.drawRoundRect(badgeRect, 11f, 11f, paint)
-        paint.color = Color.parseColor("#38BDF8")
+        textPaint.isFakeBoldText = true
+        textPaint.textSize = 15f
+        val badgeW = textPaint.measureText(badgeStr) + 20f
+        val badgeH = 26f
+        val badgeRect = RectF(headerLeft + titleW + 14f, 14f, headerLeft + titleW + 14f + badgeW, 14f + badgeH)
+        paint.color = if (isDark) Color.argb(60, 56, 189, 248) else blendColor(currentTheme.cursorMainColor, Color.WHITE, 0.65f)
+        canvas.drawRoundRect(badgeRect, 13f, 13f, paint)
+        paint.color = currentTheme.cursorMainColor
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1f
-        canvas.drawRoundRect(badgeRect, 11f, 11f, paint)
+        paint.strokeWidth = 1.2f
+        canvas.drawRoundRect(badgeRect, 13f, 13f, paint)
         paint.style = Paint.Style.FILL
-        textPaint.color = Color.parseColor("#38BDF8")
+        textPaint.color = currentTheme.cursorMainColor
         textPaint.textAlign = Paint.Align.CENTER
         canvas.drawText(badgeStr, badgeRect.centerX(), badgeRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+        textPaint.isFakeBoldText = false
 
-        // 抽屉使用提示
+        // 抽屉使用提示 (字体加大至 15f)
         textPaint.typeface = apolloRegularTypeface
-        textPaint.textSize = 13f
-        textPaint.color = Color.parseColor("#94A3B8")
+        textPaint.textSize = 15f
+        textPaint.color = if (isDark) Color.parseColor("#94A3B8") else currentTheme.textSecondaryColor
         textPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("点击图标在副屏直接启动 · 长按固定到副屏桌面", headerLeft, 55f, textPaint)
+        canvas.drawText("点击图标在副屏直接启动 · 长按固定到副屏桌面", headerLeft, 64f, textPaint)
 
-        // 分割线
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1f
-        paint.color = Color.argb(35, 255, 255, 255)
-        canvas.drawLine(headerLeft, headerH, headerRight, headerH, paint)
-        paint.style = Paint.Style.FILL
-
-        // 3. 应用网格区域（标准 4 列 Android 抽屉大图标网格，支持平滑滚动）
-        val listTop = headerH + 10f
-        val listBottom = h - 10f
+        // 3. 应用网格区域（标准 4 列超大图标网格，加大加粗应用标题）
+        val listTop = headerH + 12f
+        val listBottom = h - 12f
         val listLeft = 24f
         val listRight = w - 24f
         val listAvailW = listRight - listLeft
@@ -1583,8 +1588,8 @@ class LowerScreenView @JvmOverloads constructor(
 
         val cols = 4
         val colW = listAvailW / cols
-        val cardH = 116f
-        val rowGap = 12f
+        val cardH = 175f
+        val rowGap = 16f
 
         val totalRows = kotlin.math.ceil(allInstalledApps.size / cols.toFloat()).toInt()
         val totalContentH = totalRows * (cardH + rowGap)
@@ -1610,65 +1615,69 @@ class LowerScreenView @JvmOverloads constructor(
 
             // 焦点/高亮底框
             if (isFocused) {
-                val focusRect = RectF(cellLeft + 8f, cellTop + 4f, cellRight - 8f, cellBottom - 4f)
+                val focusRect = RectF(cellLeft + 6f, cellTop + 4f, cellRight - 6f, cellBottom - 4f)
                 paint.style = Paint.Style.FILL
-                paint.color = Color.argb(50, 56, 189, 248)
-                canvas.drawRoundRect(focusRect, 14f, 14f, paint)
+                paint.color = if (isDark) Color.argb(60, 56, 189, 248) else Color.argb(45, 0, 184, 240)
+                canvas.drawRoundRect(focusRect, 18f, 18f, paint)
 
                 paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1.6f
-                paint.color = Color.parseColor("#38BDF8")
-                canvas.drawRoundRect(focusRect, 14f, 14f, paint)
+                paint.strokeWidth = 2.2f
+                paint.color = currentTheme.cursorMainColor
+                canvas.drawRoundRect(focusRect, 18f, 18f, paint)
                 paint.style = Paint.Style.FILL
             }
 
-            // 大图标绘制 (64x64px，圆角平滑 16px，柔和下沉阴影)
-            val iconSize = 64f
+            // 大图标绘制 (96x96px 超大尺寸！圆角平滑 22px，柔和下沉立体阴影)
+            val iconSize = 96f
             val iconLeft = cx - iconSize / 2f
-            val iconTop = cellTop + 8f
+            val iconTop = cellTop + 10f
             val iconRight = cx + iconSize / 2f
             val iconBottom = iconTop + iconSize
             val iconRect = RectF(iconLeft, iconTop, iconRight, iconBottom)
 
-            // 图标阴影
+            // 图标下沉立体阴影
             paint.style = Paint.Style.FILL
             paint.color = Color.argb(45, 0, 0, 0)
-            canvas.drawRoundRect(RectF(iconLeft, iconTop + 2.5f, iconRight, iconBottom + 2.5f), 16f, 16f, paint)
+            canvas.drawRoundRect(RectF(iconLeft, iconTop + 3.5f, iconRight, iconBottom + 3.5f), 22f, 22f, paint)
 
-            val bmp = iconCache[getIconCacheKey(app)]
+            val bmp = loadSlotIcon(app)
             if (bmp != null && !bmp.isRecycled) {
                 canvas.drawBitmap(bmp, null, iconRect, bitmapPaint)
             } else {
                 paint.color = Color.parseColor("#0284C7")
-                canvas.drawRoundRect(iconRect, 16f, 16f, paint)
+                canvas.drawRoundRect(iconRect, 22f, 22f, paint)
                 textPaint.color = Color.WHITE
-                textPaint.textSize = 24f
+                textPaint.textSize = 34f
                 textPaint.textAlign = Paint.Align.CENTER
                 canvas.drawText("📱", iconRect.centerX(), iconRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
             }
 
-            // 图标下方应用名称（居中显示，字体清晰加粗纯白带阴影）
-            textPaint.typeface = apolloMediumTypeface
-            textPaint.textSize = 14f
-            textPaint.color = Color.WHITE
+            // 图标下方应用名称（超大加粗标题！字号 18.5f，居中排版，高对比度立体投影）
+            textPaint.typeface = boldTypeface
+            textPaint.textSize = 18.5f
+            textPaint.color = if (isDark) Color.WHITE else currentTheme.textPrimaryColor
             textPaint.textAlign = Paint.Align.CENTER
-            textPaint.setShadowLayer(4f, 0f, 1.8f, Color.argb(200, 0, 0, 0))
+            if (isDark) {
+                textPaint.setShadowLayer(4.5f, 0f, 2.2f, Color.argb(220, 0, 0, 0))
+            } else {
+                textPaint.setShadowLayer(3f, 0f, 1.2f, Color.argb(150, 255, 255, 255))
+            }
 
             val maxTextW = colW - 14f
             val rawTitle = app.title
             if (textPaint.measureText(rawTitle) <= maxTextW) {
                 // 单行居中
-                canvas.drawText(rawTitle, cx, iconBottom + 20f, textPaint)
+                canvas.drawText(rawTitle, cx, iconBottom + 26f, textPaint)
             } else {
-                // 拆分为至多两行，优雅排版
+                // 拆分为至多两行，清晰排版
                 val line1 = truncateText(rawTitle, maxTextW, textPaint)
                 val remaining = if (line1.length < rawTitle.length) rawTitle.substring(line1.length).trim() else ""
                 if (remaining.isNotEmpty()) {
                     val line2 = truncateText(remaining, maxTextW, textPaint)
-                    canvas.drawText(line1, cx, iconBottom + 16f, textPaint)
-                    canvas.drawText(line2, cx, iconBottom + 32f, textPaint)
+                    canvas.drawText(line1, cx, iconBottom + 22f, textPaint)
+                    canvas.drawText(line2, cx, iconBottom + 45f, textPaint)
                 } else {
-                    canvas.drawText(line1, cx, iconBottom + 20f, textPaint)
+                    canvas.drawText(line1, cx, iconBottom + 26f, textPaint)
                 }
             }
             textPaint.clearShadowLayer()
@@ -1676,18 +1685,18 @@ class LowerScreenView @JvmOverloads constructor(
 
         canvas.restore()
 
-        // 4. 优雅的右侧滚动指示条 (Android 胶囊滚动条)
+        // 4. 右侧滚动指示条 (Android 胶囊滚动条，色彩呼应主题)
         if (maxAppsScrollY > 0f) {
             val trackH = listBottom - listTop
-            val thumbH = (trackH * (viewportH / totalContentH)).coerceIn(28f, trackH * 0.7f)
+            val thumbH = (trackH * (viewportH / totalContentH)).coerceIn(32f, trackH * 0.7f)
             val thumbTop = listTop + (trackH - thumbH) * (curScroll / maxAppsScrollY)
-            val scrollTrackRect = RectF(listRight + 6f, listTop, listRight + 11f, listBottom)
-            paint.color = Color.argb(25, 255, 255, 255)
-            canvas.drawRoundRect(scrollTrackRect, 2.5f, 2.5f, paint)
+            val scrollTrackRect = RectF(listRight + 6f, listTop, listRight + 12f, listBottom)
+            paint.color = if (isDark) Color.argb(25, 255, 255, 255) else Color.argb(25, 0, 0, 0)
+            canvas.drawRoundRect(scrollTrackRect, 3f, 3f, paint)
 
-            paint.color = Color.argb(160, 56, 189, 248)
-            val thumbRect = RectF(listRight + 6f, thumbTop, listRight + 11f, thumbTop + thumbH)
-            canvas.drawRoundRect(thumbRect, 2.5f, 2.5f, paint)
+            paint.color = currentTheme.cursorMainColor
+            val thumbRect = RectF(listRight + 6f, thumbTop, listRight + 12f, thumbTop + thumbH)
+            canvas.drawRoundRect(thumbRect, 3f, 3f, paint)
         }
     }
 
@@ -6150,9 +6159,9 @@ class LowerScreenView @JvmOverloads constructor(
         }
 
         val h = height.toFloat()
-        val headerH = 68f
-        val listTop = headerH + 10f
-        val listBottom = h - 10f
+        val headerH = 78f
+        val listTop = headerH + 12f
+        val listBottom = h - 12f
         val listLeft = 24f
         val listRight = width.toFloat() - 24f
         val listAvailW = listRight - listLeft
@@ -6160,8 +6169,8 @@ class LowerScreenView @JvmOverloads constructor(
         if (x in listLeft..listRight && y in listTop..listBottom) {
             val cols = 4
             val colW = listAvailW / cols
-            val cardH = 116f
-            val rowGap = 12f
+            val cardH = 175f
+            val rowGap = 16f
 
             val relY = y - listTop + appsScrollY
             val row = (relY / (cardH + rowGap)).toInt()
@@ -6182,9 +6191,9 @@ class LowerScreenView @JvmOverloads constructor(
 
     private fun handleAllAppsDrawerLongPress(x: Float, y: Float) {
         val h = height.toFloat()
-        val headerH = 68f
-        val listTop = headerH + 10f
-        val listBottom = h - 10f
+        val headerH = 78f
+        val listTop = headerH + 12f
+        val listBottom = h - 12f
         val listLeft = 24f
         val listRight = width.toFloat() - 24f
         val listAvailW = listRight - listLeft
@@ -6192,8 +6201,8 @@ class LowerScreenView @JvmOverloads constructor(
         if (x in listLeft..listRight && y in listTop..listBottom) {
             val cols = 4
             val colW = listAvailW / cols
-            val cardH = 116f
-            val rowGap = 12f
+            val cardH = 175f
+            val rowGap = 16f
 
             val relY = y - listTop + appsScrollY
             val row = (relY / (cardH + rowGap)).toInt()
@@ -6299,11 +6308,11 @@ class LowerScreenView @JvmOverloads constructor(
                     SoundEffectEngine.playCursorMove()
 
                     val h = height.toFloat()
-                    val headerH = 68f
-                    val listTop = headerH + 10f
-                    val listBottom = h - 10f
-                    val cardH = 116f
-                    val rowGap = 12f
+                    val headerH = 78f
+                    val listTop = headerH + 12f
+                    val listBottom = h - 12f
+                    val cardH = 175f
+                    val rowGap = 16f
                     val row = appsCursorIndex / cols
                     val itemTop = listTop + row * (cardH + rowGap)
                     val itemBottom = itemTop + cardH
