@@ -585,6 +585,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         cachedPlatformGameCounts?.let { return it }
         val disabledLibs = repo.getDisabledMediaLibs()
         val hideMissing = repo.hideGamesWithoutCover
+        val hideNoRom = repo.hideGamesWithoutRom
         val counts = rootSlots.filter {
             !it.isDemo &&
                 it.type != PlatformType.EMPTY &&
@@ -592,7 +593,8 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                 it.type != PlatformType.BADGE &&
                 it.type != PlatformType.ANDROID_APP &&
                 !isSlotFromDisabledMediaLib(it, disabledLibs) &&
-                (!hideMissing || repo.hasValidCover(it))
+                (!hideMissing || repo.hasValidCover(it)) &&
+                (!hideNoRom || repo.hasValidRom(it))
         }.groupingBy { it.getEffectivePlatform() }.eachCount()
         cachedPlatformGameCounts = counts
         return counts
@@ -607,6 +609,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val enabledPlatforms = repo.getEnabledPlatforms()
         val disabledLibs = repo.getDisabledMediaLibs()
         val hideMissing = repo.hideGamesWithoutCover
+        val hideNoRom = repo.hideGamesWithoutRom
         val allNonEmpty = rootSlots.filter {
             it.type != PlatformType.EMPTY &&
                 it.type != PlatformType.FOLDER &&
@@ -615,7 +618,8 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                 !it.isDemo &&
                 isPlatformAllowed(it, enabledPlatforms) &&
                 !isSlotFromDisabledMediaLib(it, disabledLibs) &&
-                (!hideMissing || repo.hasValidCover(it))
+                (!hideMissing || repo.hasValidCover(it)) &&
+                (!hideNoRom || repo.hasValidRom(it))
         }
         return if (catId == "all") {
             allNonEmpty.size
@@ -689,6 +693,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         lowerScreenView.platformGameCounts = getPlatformGameCounts()
         lowerScreenView.lastMountedMediaDir = repo.lastMountedMediaDir
         lowerScreenView.hideGamesWithoutCover = repo.hideGamesWithoutCover
+        lowerScreenView.hideGamesWithoutRom = repo.hideGamesWithoutRom
         lowerScreenView.default3dsEmulatorPkg = repo.default3dsEmulatorPkg
         lowerScreenView.defaultNdsEmulatorPkg = repo.defaultNdsEmulatorPkg
         lowerScreenView.default3dsEmulatorLabel = queryAppLabel(repo.default3dsEmulatorPkg).ifBlank { "Citra MMJ" }
@@ -736,13 +741,15 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val disabledLibs = repo.getDisabledMediaLibs()
 
         val hideMissing = repo.hideGamesWithoutCover
+        val hideNoRom = repo.hideGamesWithoutRom
         val folder = currentOpenedFolder
         if (folder != null) {
             val children = folderItems.filter {
                 it.parentFolderId == folder.id &&
                     isPlatformAllowed(it, enabledPlatforms) &&
                     !isSlotFromDisabledMediaLib(it, disabledLibs) &&
-                    (!hideMissing || repo.hasValidCover(it))
+                    (!hideMissing || repo.hasValidCover(it)) &&
+                    (!hideNoRom || repo.hasValidRom(it))
             }.toMutableList()
             val folderGrid = MutableList(LauncherRepository.TOTAL_SLOTS) { idx ->
                 GridSlotItem(id = "folder_empty_${folder.id}_$idx", slotIndex = idx, type = PlatformType.EMPTY)
@@ -779,7 +786,8 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                     !it.isDemo &&
                     isPlatformAllowed(it, enabledPlatforms) &&
                     !isSlotFromDisabledMediaLib(it, disabledLibs) &&
-                    (!hideMissing || repo.hasValidCover(it))
+                    (!hideMissing || repo.hasValidCover(it)) &&
+                    (!hideNoRom || repo.hasValidRom(it))
             }
             val targetSize = maxOf(LauncherRepository.TOTAL_SLOTS, gamesOnly.size + 12)
             val allGrid = MutableList(targetSize) { idx ->
@@ -802,7 +810,8 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                 isPlatformAllowed(it, enabledPlatforms) &&
                 repo.isGameInCategory(activeCategory.id, it) &&
                 !isSlotFromDisabledMediaLib(it, disabledLibs) &&
-                (!hideMissing || repo.hasValidCover(it))
+                (!hideMissing || repo.hasValidCover(it)) &&
+                (!hideNoRom || repo.hasValidRom(it))
         }
         val targetSize = maxOf(LauncherRepository.TOTAL_SLOTS, matched.size + 12)
         val categoryGrid = MutableList(targetSize) { idx ->
@@ -2114,6 +2123,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val enabledPlatforms = repo.getEnabledPlatforms()
         val disabledLibs = repo.getDisabledMediaLibs()
         val hideMissing = repo.hideGamesWithoutCover
+        val hideNoRom = repo.hideGamesWithoutRom
         return rootSlots.filter {
             it.type != PlatformType.EMPTY &&
                 it.type != PlatformType.FOLDER &&
@@ -2123,6 +2133,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                 isPlatformAllowed(it, enabledPlatforms) &&
                 !isSlotFromDisabledMediaLib(it, disabledLibs) &&
                 (!hideMissing || repo.hasValidCover(it)) &&
+                (!hideNoRom || repo.hasValidRom(it)) &&
                 repo.isGameInCategory(category.id, it)
         }
     }
@@ -2152,6 +2163,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val enabledPlatforms = repo.getEnabledPlatforms()
         val disabledLibs = repo.getDisabledMediaLibs()
         val hideMissing = repo.hideGamesWithoutCover
+        val hideNoRom = repo.hideGamesWithoutRom
         return rootSlots.filter {
             !it.isDemo &&
                 it.type != PlatformType.EMPTY &&
@@ -2160,7 +2172,8 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                 it.type != PlatformType.ANDROID_APP &&
                 isPlatformAllowed(it, enabledPlatforms) &&
                 !isSlotFromDisabledMediaLib(it, disabledLibs) &&
-                (!hideMissing || repo.hasValidCover(it))
+                (!hideMissing || repo.hasValidCover(it)) &&
+                (!hideNoRom || repo.hasValidRom(it))
         }.sortedWith(compareBy({ it.getEffectivePlatform() }, { it.title.lowercase() }))
     }
 
@@ -2251,6 +2264,17 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         SoundEffectEngine.playSelectApplet()
         syncViewsWithState()
         val msg = if (newVal) "已开启：仅显示拥有封面的游戏" else "已关闭：显示全部游戏（包含无封面ROM）"
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onToggleHideGamesWithoutRomRequested() {
+        val newVal = !repo.hideGamesWithoutRom
+        repo.hideGamesWithoutRom = newVal
+        invalidatePlatformGameCountsCache()
+        lowerScreenView.hideGamesWithoutRom = newVal
+        SoundEffectEngine.playSelectApplet()
+        syncViewsWithState()
+        val msg = if (newVal) "已开启：仅显示已下载真实ROM的游戏" else "已关闭：显示全部游戏（包含仅有媒体未下载ROM）"
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 

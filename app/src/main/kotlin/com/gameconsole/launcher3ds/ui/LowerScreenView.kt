@@ -111,6 +111,7 @@ class LowerScreenView @JvmOverloads constructor(
         fun onRemoveMediaLibraryRequested(path: String)
         fun onRemoveAllMediaLibrariesRequested()
         fun onToggleHideGamesWithoutCoverRequested()
+        fun onToggleHideGamesWithoutRomRequested()
         fun onGetStorageRoots(): List<java.io.File>
         fun onDirectoryChosenForMount(path: String)
         fun onCategoryManagerRequested()
@@ -330,6 +331,12 @@ class LowerScreenView @JvmOverloads constructor(
         }
 
     var hideGamesWithoutCover: Boolean = false
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    var hideGamesWithoutRom: Boolean = false
         set(value) {
             field = value
             invalidate()
@@ -602,7 +609,7 @@ class LowerScreenView @JvmOverloads constructor(
     private val stepPlus5BtnRect = RectF()
     private val presetChipRects = Array(8) { RectF() }
     private val intervalPlayToggleBtnRect = RectF()
-    private val advancedCardRects = Array(8) { RectF() }
+    private val advancedCardRects = Array(10) { RectF() }
     private val romDirCardRects = Array(8) { RectF() }
     private var mediaLibScrollY: Float = 0f
     private var targetMediaLibScrollY: Float = 0f
@@ -615,6 +622,7 @@ class LowerScreenView @JvmOverloads constructor(
     private val mediaLibDisableAllBtnRect = RectF()
     private val mediaLibRemoveAllBtnRect = RectF()
     private val mediaLibHideMissingCoverBtnRect = RectF()
+    private val mediaLibHideMissingRomBtnRect = RectF()
 
     // 底部系列与游戏分类管理器布局 Rects 与状态
     data class CategoryGameItemUi(
@@ -4670,7 +4678,7 @@ class LowerScreenView @JvmOverloads constructor(
         val contentH = (contentBottom - contentTop).coerceAtLeast(100f)
 
         val cols = 2
-        val rows = 4
+        val rows = 5
         val gapX = 14f
         val gapY = 8f
         val cardW = (contentW - gapX) / cols
@@ -4700,35 +4708,41 @@ class LowerScreenView @JvmOverloads constructor(
         val titles = arrayOf(
             "📂 挂载游戏目录与启闭",
             "🏷️ 系列与游戏类别管理",
+            if (hideGamesWithoutRom) "🎮 仅显示已有ROM: 开启" else "🎮 仅显示已有ROM: 关闭",
             if (hideGamesWithoutCover) "🖼️ 隐藏无封面游戏: 开启" else "🖼️ 隐藏无封面游戏: 关闭",
             if (mainFilterActive) "📺 3DS主屏复古滤镜: $mainFilterModeDesc" else "📺 3DS主屏复古滤镜: 关闭",
             if (subscreenRetroFilterEnabled) "⚡ 3DS副屏复古滤镜: 开启" else "⚡ 3DS副屏复古滤镜: 关闭",
             if (subscreenCompanionEnabled) "🎮 单屏游戏副屏面板: 开启" else "🎮 单屏游戏副屏面板: 关闭",
             if (isSplitPreviewEnabled) "📺 单屏合并预览：开启" else "📺 真双屏独立显示：开启",
-            "🏠 设为掌机默认主桌面"
+            "🏠 设为掌机默认主桌面",
+            "🔍 重新扫描全部游戏库"
         )
         val descs = arrayOf(
             "已挂载 ${mediaLibraries.size} 个游戏目录 · 点击手动管理",
             "自定义分类名称 · 上下排序与增删游戏",
+            if (hideGamesWithoutRom) "当前: 仅卡槽展示已下载真实ROM游戏" else "当前: 显示全部游戏 · 包含仅媒体未下ROM",
             if (hideGamesWithoutCover) "当前: 仅卡槽展示精选海报游戏" else "当前: 显示全部游戏 · 包含无封面ROM",
             if (mainFilterActive) "$mainFilterTypeLabel ($mainScreenRetroFilterOpacity%) · 点击配置" else "主屏原始拉伸 · 点击开启与配置",
             if (subscreenRetroFilterEnabled) "$subFilterTypeLabel ($subscreenRetroFilterOpacity%) · 点击配置" else "副屏原始拉伸 · 点击开启与配置",
             if (subscreenCompanionEnabled) "启动单屏游戏显示按键与攻略 · 点击关闭" else "启动单屏游戏时副屏原生黑屏 · 点击开启",
             if (isSplitPreviewEnabled) "单屏合并双屏画面 · 点击切换真双屏" else "上下屏独立分显 · 点击切换合并",
-            "系统设置设为开机默认主屏幕 · 点击前往"
+            "系统设置设为开机默认主屏幕 · 点击前往",
+            "重新读取全部挂载目录 · 自动更新卡槽"
         )
         val accents = intArrayOf(
             Color.parseColor("#0284C7"),
             Color.parseColor("#F59E0B"),
+            if (hideGamesWithoutRom) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
             if (hideGamesWithoutCover) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
             if (mainFilterActive) Color.parseColor("#0284C7") else Color.parseColor("#64748B"),
             if (subscreenRetroFilterEnabled) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
             if (subscreenCompanionEnabled) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
             Color.parseColor("#2B343D"),
-            Color.parseColor("#E11D48")
+            Color.parseColor("#E11D48"),
+            Color.parseColor("#0284C7")
         )
 
-        for (idx in 0 until 8) {
+        for (idx in 0 until 10) {
             val col = idx % cols
             val row = idx / cols
             val cl = contentLeft + col * (cardW + gapX)
@@ -5064,10 +5078,43 @@ class LowerScreenView @JvmOverloads constructor(
         textPaint.textAlign = Paint.Align.LEFT
         canvas.drawText("📂 游戏目录管理 (手动挂载与启闭)", contentLeft, headerTop + 33f, textPaint)
 
-        // 右上角：一键切换「隐藏无封面游戏」药丸按钮
-        val pillW = 210f
-        val pillH = 40f
-        mediaLibHideMissingCoverBtnRect.set(contentRight - pillW, headerTop + (headerH - pillH) / 2f, contentRight, headerTop + (headerH + pillH) / 2f)
+        // 右上角药丸按钮：1. 一键切换「仅显示已有ROM」  2. 一键切换「隐藏无封面」
+        val pillH = 38f
+        val pillGap = 8f
+        val romPillW = 180f
+        val coverPillW = 165f
+
+        mediaLibHideMissingCoverBtnRect.set(
+            contentRight - coverPillW,
+            headerTop + (headerH - pillH) / 2f,
+            contentRight,
+            headerTop + (headerH + pillH) / 2f
+        )
+        mediaLibHideMissingRomBtnRect.set(
+            mediaLibHideMissingCoverBtnRect.left - pillGap - romPillW,
+            headerTop + (headerH - pillH) / 2f,
+            mediaLibHideMissingCoverBtnRect.left - pillGap,
+            headerTop + (headerH + pillH) / 2f
+        )
+
+        // 绘制 ROM 药丸
+        draw3dsSculptedDockButton(
+            canvas = canvas,
+            r = mediaLibHideMissingRomBtnRect,
+            radius = pillH / 2f,
+            isPrimary = hideGamesWithoutRom,
+            accentOverride = if (hideGamesWithoutRom) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
+            drawOutline = !hideGamesWithoutRom,
+            isSolid = hideGamesWithoutRom
+        )
+        textPaint.typeface = apolloMediumTypeface
+        textPaint.textSize = 16f
+        textPaint.color = if (hideGamesWithoutRom) Color.WHITE else currentTheme.textSecondaryColor
+        textPaint.textAlign = Paint.Align.CENTER
+        val romLabel = if (hideGamesWithoutRom) "🎮 仅有ROM: 开" else "🎮 仅有ROM: 关"
+        canvas.drawText(romLabel, mediaLibHideMissingRomBtnRect.centerX(), mediaLibHideMissingRomBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+
+        // 绘制 封面 药丸
         draw3dsSculptedDockButton(
             canvas = canvas,
             r = mediaLibHideMissingCoverBtnRect,
@@ -5077,12 +5124,9 @@ class LowerScreenView @JvmOverloads constructor(
             drawOutline = !hideGamesWithoutCover,
             isSolid = hideGamesWithoutCover
         )
-        textPaint.typeface = apolloMediumTypeface
-        textPaint.textSize = 17f
         textPaint.color = if (hideGamesWithoutCover) Color.WHITE else currentTheme.textSecondaryColor
-        textPaint.textAlign = Paint.Align.CENTER
-        val hideLabel = if (hideGamesWithoutCover) "🖼️ 隐藏无封面: 开" else "🖼️ 隐藏无封面: 关"
-        canvas.drawText(hideLabel, mediaLibHideMissingCoverBtnRect.centerX(), mediaLibHideMissingCoverBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+        val coverLabel = if (hideGamesWithoutCover) "🖼️ 隐藏无图: 开" else "🖼️ 隐藏无图: 关"
+        canvas.drawText(coverLabel, mediaLibHideMissingCoverBtnRect.centerX(), mediaLibHideMissingCoverBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
 
         // 移除冗长说明副标题，直接留给列表更多纵向空间
         val contentTop = headerTop + headerH + 8f
@@ -5650,7 +5694,7 @@ class LowerScreenView @JvmOverloads constructor(
                 }
             }
             SettingsSubPanel.ADVANCED_SETTINGS -> {
-                for (idx in 0 until 8) {
+                for (idx in 0 until 10) {
                     if (advancedCardRects[idx].contains(x, y)) {
                         subPanelCursorIndex = idx
                         triggerAdvancedCardAt(idx)
@@ -5663,6 +5707,12 @@ class LowerScreenView @JvmOverloads constructor(
                 return
             }
             SettingsSubPanel.MEDIA_LIBRARY_MANAGER -> {
+                if (mediaLibHideMissingRomBtnRect.contains(x, y)) {
+                    SoundEffectEngine.playSelectApplet()
+                    listener?.onToggleHideGamesWithoutRomRequested()
+                    invalidate()
+                    return
+                }
                 if (mediaLibHideMissingCoverBtnRect.contains(x, y)) {
                     SoundEffectEngine.playSelectApplet()
                     listener?.onToggleHideGamesWithoutCoverRequested()
@@ -5892,34 +5942,44 @@ class LowerScreenView @JvmOverloads constructor(
             }
             2 -> {
                 SoundEffectEngine.playSelectApplet()
-                listener?.onToggleHideGamesWithoutCoverRequested()
+                listener?.onToggleHideGamesWithoutRomRequested()
                 invalidate()
             }
             3 -> {
+                SoundEffectEngine.playSelectApplet()
+                listener?.onToggleHideGamesWithoutCoverRequested()
+                invalidate()
+            }
+            4 -> {
                 settingsSubPanel = SettingsSubPanel.MAIN_SCREEN_FILTER_CONFIG
                 SoundEffectEngine.playSelectApplet()
                 invalidate()
             }
-            4 -> {
+            5 -> {
                 settingsSubPanel = SettingsSubPanel.SUB_SCREEN_FILTER_CONFIG
                 SoundEffectEngine.playSelectApplet()
                 invalidate()
             }
-            5 -> {
+            6 -> {
                 subscreenCompanionEnabled = !subscreenCompanionEnabled
                 SoundEffectEngine.playSelectApplet()
                 listener?.onToggleSubscreenCompanionRequested()
                 invalidate()
             }
-            6 -> {
+            7 -> {
                 SoundEffectEngine.playSelectApplet()
                 isSplitPreviewEnabled = !isSplitPreviewEnabled
                 listener?.onToggleSplitPreviewRequested()
                 invalidate()
             }
-            7 -> {
+            8 -> {
                 SoundEffectEngine.playSelectApplet()
                 listener?.onSetDefaultHomeRequested()
+            }
+            9 -> {
+                SoundEffectEngine.playSelectApplet()
+                listener?.onManualRomScanRequested()
+                invalidate()
             }
         }
     }
@@ -6363,7 +6423,7 @@ class LowerScreenView @JvmOverloads constructor(
         }
         if (settingsSubPanel == SettingsSubPanel.ADVANCED_SETTINGS) {
                 val cols = 2
-                val rows = 4
+                val rows = 5
                 val col = subPanelCursorIndex % cols
                 val row = subPanelCursorIndex / cols
                 val newCol = (col + dxCols).coerceIn(0, cols - 1)

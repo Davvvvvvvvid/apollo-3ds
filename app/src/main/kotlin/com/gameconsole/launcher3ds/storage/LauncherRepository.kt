@@ -533,6 +533,7 @@ class LauncherRepository(private val context: Context) {
         private const val KEY_CACHED_MEDIA_LIBRARIES = "cached_media_libraries_v3"
         private const val KEY_MANUAL_MOUNTED_DIRS = "manual_mounted_game_dirs_v2"
         private const val KEY_HIDE_GAMES_WITHOUT_COVER = "hide_games_without_cover_v1"
+        private const val KEY_HIDE_GAMES_WITHOUT_ROM = "hide_games_without_rom_v1"
         private const val KEY_SUBSCREEN_COMPANION_ENABLED = "key_subscreen_companion_enabled"
         private const val KEY_SUBSCREEN_RETRO_FILTER_ENABLED = "subscreen_retro_filter_enabled"
         private const val KEY_SUBSCREEN_RETRO_FILTER_TYPE = "subscreen_retro_filter_type"
@@ -602,6 +603,26 @@ class LauncherRepository(private val context: Context) {
         set(value) {
             prefs.edit().putBoolean(KEY_HIDE_GAMES_WITHOUT_COVER, value).apply()
         }
+
+    var hideGamesWithoutRom: Boolean
+        get() = prefs.getBoolean(KEY_HIDE_GAMES_WITHOUT_ROM, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_HIDE_GAMES_WITHOUT_ROM, value).apply()
+        }
+
+    fun hasValidRom(slot: GridSlotItem): Boolean {
+        if (slot.isDemo) return true
+        if (slot.type == PlatformType.EMPTY) return false
+        if (slot.type == PlatformType.ANDROID_APP || slot.type == PlatformType.FOLDER || slot.type == PlatformType.BADGE) return true
+        val rom = slot.romPath
+        if (rom.isNotBlank()) {
+            val f = File(rom)
+            if (f.exists() && f.length() > 0) {
+                return true
+            }
+        }
+        return false
+    }
 
     fun hasValidCover(slot: GridSlotItem): Boolean {
         if (slot.isDemo) return true
