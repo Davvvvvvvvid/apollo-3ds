@@ -137,7 +137,8 @@ class UpperScreenView @JvmOverloads constructor(
     fun updateSelectedSlot(
         newSlot: GridSlotItem?,
         keepPreviewPlaying: Boolean = isVideoAudioEnabled,
-        keepAudioEnabled: Boolean = isVideoAudioEnabled
+        keepAudioEnabled: Boolean = isVideoAudioEnabled,
+        immediateVideo: Boolean = false
     ) {
         val changed = selectedSlot?.id != newSlot?.id ||
             selectedSlot?.videoPath != newSlot?.videoPath ||
@@ -148,10 +149,12 @@ class UpperScreenView @JvmOverloads constructor(
 
         isUpdatingSlot = true
         try {
-            // 立即停止上一款游戏的视频播放并隐藏画面，彻底杜绝切游戏时旧视频重播与闪烁
-            stopAndReleaseVideoPlayer()
+            // 取消上一次未执行的延时视频任务，并立即隐藏视频画面，彻底杜绝切游戏时闪烁
+            videoDebounceHandler.removeCallbacks(videoDebounceRunnable)
+            videoTextureView.animate().cancel()
             videoTextureView.alpha = 0f
             isVideoFrameReady = false
+            stopAndReleaseVideoPlayer()
 
             selectedSlot = newSlot
             val shouldPlayPreview = if (keepAudioEnabled) true else keepPreviewPlaying
@@ -170,7 +173,7 @@ class UpperScreenView @JvmOverloads constructor(
         }
 
         if (changed || newSlot != null) {
-            syncVideoPlayback()
+            syncVideoPlayback(immediate = immediateVideo)
         }
         invalidate()
     }
@@ -333,6 +336,13 @@ class UpperScreenView @JvmOverloads constructor(
     private var currentVideoNativeHeight: Int = 0
     private val currentScreenAbsRect = RectF()
     private val currentBoxAbsRect = RectF()
+
+    // 视频异步防抖与非阻塞释放执行器（解决连续划动光标时的创建/释放掉帧）
+    private val videoDebounceHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val videoReleaseExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val videoDebounceRunnable = Runnable {
+        syncVideoPlaybackInternal()
+    }
     private val topAudioToggleRect = RectF()
     private var baseTextureW: Int = 960
     private var baseTextureH: Int = 580
@@ -644,7 +654,17 @@ class UpperScreenView @JvmOverloads constructor(
         }
     }
 
-    private fun syncVideoPlayback() {
+    private fun syncVideoPlayback(immediate: Boolean = false) {
+        videoDebounceHandler.removeCallbacks(videoDebounceRunnable)
+        if (immediate) {
+            syncVideoPlaybackInternal()
+        } else {
+            // 光标连续滑动时防抖260ms：移动时不加载不解码视频，保证60fps丝滑，停顿后才平滑淡入
+            videoDebounceHandler.postDelayed(videoDebounceRunnable, 260L)
+        }
+    }
+
+    private fun syncVideoPlaybackInternal() {
         val item = selectedSlot
         val targetVideo = if (isHostResumed && isStageApplet(activeApplet) && item != null && item.type != PlatformType.EMPTY) {
             when {
@@ -679,7 +699,7 @@ class UpperScreenView @JvmOverloads constructor(
                     videoPlayer?.start()
                 }
                 if (isVideoFrameReady) {
-                    videoTextureView.alpha = 1f
+                    videoTextureView.animate().alpha(1f).setDuration(220).start()
                 }
                 return
             } catch (_: Exception) {
@@ -697,31 +717,10 @@ class UpperScreenView @JvmOverloads constructor(
             mp.setSurface(surf)
 
             var isDataSourceSet = false
-            // 1. 如果是本地存在的真实文件（Windows 或安卓挂载路径）
+            // 1. 如果是本地存在的真实文件（完全移除主线程 MediaMetadataRetriever 阻塞调用）
             if (!targetVideo.startsWith("asset://") && !targetVideo.startsWith("assets/")) {
                 val f = File(targetVideo)
                 if (f.exists() && f.length() > 0) {
-                    try {
-                        val mmr = MediaMetadataRetriever()
-                        mmr.setDataSource(f.absolutePath)
-                        val wStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                        val hStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                        val rotStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                        val w = wStr?.toIntOrNull() ?: 0
-                        val h = hStr?.toIntOrNull() ?: 0
-                        val rot = rotStr?.toIntOrNull() ?: 0
-                        if (w > 0 && h > 0) {
-                            if (rot == 90 || rot == 270) {
-                                currentVideoNativeWidth = h
-                                currentVideoNativeHeight = w
-                            } else {
-                                currentVideoNativeWidth = w
-                                currentVideoNativeHeight = h
-                            }
-                        }
-                        mmr.release()
-                    } catch (_: Exception) {
-                    }
                     try {
                         mp.setDataSource(f.absolutePath)
                         isDataSourceSet = true
@@ -731,7 +730,7 @@ class UpperScreenView @JvmOverloads constructor(
                 }
             }
 
-            // 2. 如果本地文件不存在（如在安卓真机上没有 I:\ 驱动器路径），或显式指定了 asset://，自动使用内置 Asset 资源回退
+            // 2. 如果本地文件不存在，或显式指定了 asset://，自动使用内置 Asset 资源回退
             if (!isDataSourceSet) {
                 val assetPath = when {
                     targetVideo.startsWith("asset://") -> targetVideo.removePrefix("asset://")
@@ -773,7 +772,7 @@ class UpperScreenView @JvmOverloads constructor(
                         player.setVolume(v, v)
                         player.start()
                         isVideoFrameReady = true
-                        videoTextureView.alpha = 1f
+                        videoTextureView.animate().alpha(1f).setDuration(220).start()
                         invalidate()
                     } catch (_: Exception) {
                     }
@@ -789,7 +788,7 @@ class UpperScreenView @JvmOverloads constructor(
             mp.setOnInfoListener { _, what, _ ->
                 if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
                     isVideoFrameReady = true
-                    videoTextureView.alpha = 1f
+                    videoTextureView.animate().alpha(1f).setDuration(220).start()
                     invalidate()
                 }
                 false
@@ -816,23 +815,30 @@ class UpperScreenView @JvmOverloads constructor(
     }
 
     private fun stopAndReleaseVideoPlayer() {
+        videoDebounceHandler.removeCallbacks(videoDebounceRunnable)
         currentVideoPath = ""
         isVideoFrameReady = false
         currentVideoNativeWidth = 0
         currentVideoNativeHeight = 0
         videoMatrix.reset()
         videoTextureView.setTransform(videoMatrix)
+        videoTextureView.animate().cancel()
         videoTextureView.alpha = 0f
-        try {
-            videoPlayer?.setSurface(null)
-            videoPlayer?.stop()
-        } catch (_: Exception) {
-        }
-        try {
-            videoPlayer?.release()
-        } catch (_: Exception) {
-        }
+        val oldPlayer = videoPlayer
         videoPlayer = null
+        if (oldPlayer != null) {
+            videoReleaseExecutor.execute {
+                try {
+                    oldPlayer.setSurface(null)
+                    oldPlayer.stop()
+                } catch (_: Exception) {
+                }
+                try {
+                    oldPlayer.release()
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     fun triggerLaunchSplash(gameTitle: String, onFinished: () -> Unit) {

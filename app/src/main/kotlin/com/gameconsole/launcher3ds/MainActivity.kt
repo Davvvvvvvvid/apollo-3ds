@@ -1776,7 +1776,67 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
     }
 
     override fun onManualRomScanRequested() {
-        onQuickRescanRequested()
+        val ctx = dialogContext()
+        val missingCount = rootSlots.count {
+            !it.isDemo &&
+                it.type != PlatformType.EMPTY &&
+                it.type != PlatformType.FOLDER &&
+                it.type != PlatformType.BADGE &&
+                it.type != PlatformType.ANDROID_APP &&
+                (it.boxArtPath.isBlank() || !File(it.boxArtPath).exists())
+        }
+        val options = arrayOf(
+            "🔄 重新全量扫描本地游戏目录",
+            "🌐 批量在线刮削缺失封面 (共 ${missingCount} 款缺失)"
+        )
+        AlertDialog.Builder(ctx)
+            .setTitle("🎮 游戏库更新与封面刮削")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> onQuickRescanRequested()
+                    1 -> batchScrapeMissingCovers()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun batchScrapeMissingCovers() {
+        val targets = rootSlots.filter {
+            !it.isDemo &&
+                it.type != PlatformType.EMPTY &&
+                it.type != PlatformType.FOLDER &&
+                it.type != PlatformType.BADGE &&
+                it.type != PlatformType.ANDROID_APP &&
+                (it.boxArtPath.isBlank() || !File(it.boxArtPath).exists())
+        }
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "所有游戏均已有封面海报，无需重复刮削", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "开始后台批量刮削 ${targets.size} 款缺失封面的游戏...", Toast.LENGTH_SHORT).show()
+        var successCount = 0
+        var finishedCount = 0
+        val total = targets.size
+        for (slot in targets) {
+            com.gameconsole.launcher3ds.scraper.CoverScraper.scrapeCoverForSlot(this, slot) { success, path, _ ->
+                if (success && path.isNotBlank()) {
+                    slot.boxArtPath = path
+                    successCount++
+                }
+                finishedCount++
+                if (finishedCount == total || (successCount > 0 && successCount % 3 == 0)) {
+                    runOnUiThread {
+                        persistSlotUpdate(slot)
+                        invalidatePlatformGameCountsCache()
+                        syncViewsWithState()
+                        if (finishedCount == total) {
+                            Toast.makeText(this, "🎉 批量刮削完成！成功获取 $successCount / $total 款游戏封面", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     override fun onMediaLibraryManagerOpened() {
@@ -3937,6 +3997,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val videoStatus = if (slot.videoPath.isNotBlank() && File(slot.videoPath).exists()) "已设置" else "未设置"
 
         val options = mutableListOf(
+            "🌐 在线自动刮削匹配封面 (网络检索与下载)",
             "🖼️ 手动选择游戏封面图片 (当前: $boxStatus)",
             "🎬 手动选择上屏预览视频 (当前: $videoStatus)",
             "✏️ 打开该游戏的双屏手写「游戏笔记」",
@@ -3952,10 +4013,26 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             .setMessage(infoBuilder.toString())
             .setItems(options.toTypedArray()) { _, which ->
                 when (which) {
-                    0 -> showMediaAssetPicker(slot, isVideo = false)
-                    1 -> showMediaAssetPicker(slot, isVideo = true)
-                    2 -> onAppletClicked(SystemAppletType.GAME_NOTES)
-                    3 -> {
+                    0 -> {
+                        Toast.makeText(ctx, "正在在线检索「${slot.title}」的高清封面...", Toast.LENGTH_SHORT).show()
+                        com.gameconsole.launcher3ds.scraper.CoverScraper.scrapeCoverForSlot(this, slot) { success, path, msg ->
+                            runOnUiThread {
+                                if (success && path.isNotBlank()) {
+                                    slot.boxArtPath = path
+                                    persistSlotUpdate(slot)
+                                    invalidatePlatformGameCountsCache()
+                                    syncViewsWithState()
+                                    Toast.makeText(this, "✅ 刮削成功！已获取「${slot.title}」封面海报", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(this, "❌ $msg，可使用手动选择图片", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    }
+                    1 -> showMediaAssetPicker(slot, isVideo = false)
+                    2 -> showMediaAssetPicker(slot, isVideo = true)
+                    3 -> onAppletClicked(SystemAppletType.GAME_NOTES)
+                    4 -> {
                         if (emulators.isEmpty()) return@setItems
                         val labels = emulators.map {
                             val tag = if (it.isInstalled) " [已安装]" else " [未安装]"
@@ -3970,13 +4047,13 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                             }
                             .show()
                     }
-                    4 -> {
+                    5 -> {
                         showMainRetroFilterConfigDialog(slot)
                     }
-                    5 -> {
+                    6 -> {
                         showGameCompanionConfigDialog(slot)
                     }
-                    6 -> {
+                    7 -> {
                         val edit = EditText(ctx).apply { setText(slot.title) }
                         AlertDialog.Builder(ctx)
                             .setTitle("修改卡带标题")
@@ -3988,7 +4065,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                             }
                             .show()
                     }
-                    7 -> {
+                    8 -> {
                         clearSlotAt(lowerScreenView.selectedIndex)
                     }
                 }

@@ -2791,10 +2791,69 @@ class LauncherRepository(private val context: Context) {
 
             // 检查同级是否有 media/<romName> 以及 3DS CGFX / 横幅渲染动效
             val siblingMediaDir = File(romFile.parentFile, "media/${romFile.nameWithoutExtension}")
-            val boxPath = File(siblingMediaDir, "boxFront.png").takeIf { it.exists() }?.absolutePath
+            var boxPath = File(siblingMediaDir, "boxFront.png").takeIf { it.exists() }?.absolutePath
                 ?: File(siblingMediaDir, "boxfront.png").takeIf { it.exists() }?.absolutePath ?: ""
-            val logoPath = File(siblingMediaDir, "logo.png").takeIf { it.exists() }?.absolutePath ?: ""
-            val videoPath = File(siblingMediaDir, "video.mp4").takeIf { it.exists() }?.absolutePath ?: ""
+            var logoPath = File(siblingMediaDir, "logo.png").takeIf { it.exists() }?.absolutePath ?: ""
+            var videoPath = File(siblingMediaDir, "video.mp4").takeIf { it.exists() }?.absolutePath ?: ""
+
+            // 增强1：同目录下的同名封面文件 (如 <ROM名>.png / <ROM名>.jpg)
+            val romParent = romFile.parentFile
+            if (boxPath.isBlank() && romParent != null) {
+                for (extImg in listOf("png", "jpg", "jpeg", "webp")) {
+                    val sidecar = File(romParent, "${romFile.nameWithoutExtension}.$extImg")
+                    if (sidecar.exists() && sidecar.length() > 0) {
+                        boxPath = sidecar.absolutePath
+                        break
+                    }
+                }
+            }
+
+            // 增强2：检查同级 covers / boxart / named_boxarts 常用封面文件夹
+            if (boxPath.isBlank() && romParent != null) {
+                for (subName in listOf("covers", "boxart", "boxarts", "named_boxarts")) {
+                    val subDir = File(romParent, subName)
+                    if (subDir.exists() && subDir.isDirectory) {
+                        for (extImg in listOf("png", "jpg", "jpeg", "webp")) {
+                            val imgFile = File(subDir, "${romFile.nameWithoutExtension}.$extImg")
+                            if (imgFile.exists() && imgFile.length() > 0) {
+                                boxPath = imgFile.absolutePath
+                                break
+                            }
+                        }
+                        if (boxPath.isNotBlank()) break
+                    }
+                }
+            }
+
+            // 增强3：智能模糊匹配天马/Pegasus媒体包目录 (针对用户下载的新汉化版ROM文件名轻微不同的情况)
+            if (boxPath.isBlank() && gameMediaDirs.isNotEmpty()) {
+                val cleanKey = cleanTitle.lowercase().replace(" ", "").replace("_", "").replace("-", "")
+                val matchedMedia = gameMediaDirs.values.firstOrNull { m ->
+                    val mClean = normalizeForFuzzy(m.folderName)
+                    mClean.contains(cleanKey) || cleanKey.contains(mClean)
+                }
+                if (matchedMedia != null) {
+                    val mDir = matchedMedia.mediaDir
+                    val mBox = listOf("boxFront.png", "boxfront.png", "boxFront.jpg", "cover.png", "box.png")
+                        .map { File(mDir, it) }
+                        .firstOrNull { it.exists() && it.length() > 0 }
+                    if (mBox != null) {
+                        boxPath = mBox.absolutePath
+                    }
+                    val mLogo = listOf("logo.png", "wheel.png", "title.png")
+                        .map { File(mDir, it) }
+                        .firstOrNull { it.exists() && it.length() > 0 }
+                    if (mLogo != null && logoPath.isBlank()) {
+                        logoPath = mLogo.absolutePath
+                    }
+                    val mVideo = listOf("video.mp4", "snap.mp4")
+                        .map { File(mDir, it) }
+                        .firstOrNull { it.exists() && it.length() > 0 }
+                    if (mVideo != null && videoPath.isBlank()) {
+                        videoPath = mVideo.absolutePath
+                    }
+                }
+            }
 
             val romDir = romFile.parentFile
             val romCgfx = romDir?.listFiles()?.firstOrNull { it.extension.equals("cgfx", true) && (it.name.contains(cleanTitle, ignoreCase = true) || it.name.contains("横幅", ignoreCase = true)) }
