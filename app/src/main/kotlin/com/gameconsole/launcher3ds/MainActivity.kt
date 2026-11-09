@@ -2075,6 +2075,41 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         Toast.makeText(this, "已恢复默认排序", Toast.LENGTH_SHORT).show()
     }
 
+    override fun onLaunchInstalledAppRequested(packageName: String, activityName: String, launchOnSubscreen: Boolean) {
+        SoundEffectEngine.playLaunchGame()
+        val targetDisplayId = if (launchOnSubscreen) {
+            findSecondaryDisplay()?.displayId
+        } else {
+            null
+        }
+        val success = EmulatorLauncher.launchAndroidApp(
+            context = this,
+            packageName = packageName,
+            activityName = activityName,
+            preferredDisplayId = targetDisplayId
+        )
+        if (!success) {
+            Toast.makeText(this, "启动应用失败: $packageName", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onAddAppToDesktopRequested(slot: GridSlotItem) {
+        SoundEffectEngine.playSelectApplet()
+        val emptyIdx = rootSlots.indexOfFirst { it.type == PlatformType.EMPTY }
+        if (emptyIdx >= 0) {
+            rootSlots[emptyIdx] = slot.copy(slotIndex = emptyIdx)
+            repo.saveRootSlots(rootSlots)
+            syncViewsWithState()
+            Toast.makeText(this, "已将「${slot.title}」添加到 3DS 桌面网格", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "桌面网格已满，请先整理或移入文件夹", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onGetAllInstalledApps(): List<GridSlotItem> {
+        return repo.queryAllInstalledApps()
+    }
+
     override fun onGetGamesForCategory(category: CustomCategoryItem): List<GridSlotItem> {
         val enabledPlatforms = repo.getEnabledPlatforms()
         val disabledLibs = repo.getDisabledMediaLibs()

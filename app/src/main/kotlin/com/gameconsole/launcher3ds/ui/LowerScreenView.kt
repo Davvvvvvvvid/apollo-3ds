@@ -131,6 +131,9 @@ class LowerScreenView @JvmOverloads constructor(
         fun onSelectCategory(category: CustomCategoryItem)
         fun onSaveCategory(id: String?, name: String, isSeries: Boolean, symbol: String, color: Int)
         fun onDeleteCategory(id: String)
+        fun onLaunchInstalledAppRequested(packageName: String, activityName: String, launchOnSubscreen: Boolean)
+        fun onAddAppToDesktopRequested(slot: GridSlotItem)
+        fun onGetAllInstalledApps(): List<GridSlotItem>
     }
 
     var listener: Listener? = null
@@ -473,6 +476,14 @@ class LowerScreenView @JvmOverloads constructor(
      * 6 = 网格缩小 (-)
      * 7 = 网格放大 (+)
      */
+    val allAppsBtnRect = RectF()
+    val appsCloseBtnRect = RectF()
+    var isAllAppsDrawerOpen: Boolean = false
+    var allInstalledApps: List<GridSlotItem> = emptyList()
+    var appsScrollY: Float = 0f
+    var targetAppsScrollY: Float = 0f
+    var maxAppsScrollY: Float = 0f
+
     var selectedTopIconIndex: Int = -1
         set(value) {
             field = value
@@ -869,6 +880,11 @@ class LowerScreenView @JvmOverloads constructor(
                 distanceX: Float,
                 distanceY: Float
             ): Boolean {
+                if (isAllAppsDrawerOpen) {
+                    targetAppsScrollY = (targetAppsScrollY + distanceY).coerceIn(0f, maxAppsScrollY)
+                    invalidate()
+                    return true
+                }
                 if (isGameDescriptionOpen) {
                     targetDescScrollY = (targetDescScrollY + distanceY).coerceIn(0f, maxDescScrollY)
                     invalidate()
@@ -993,31 +1009,10 @@ class LowerScreenView @JvmOverloads constructor(
         val gridTop = if (activeFolderTitle != null && !isSettingsPanelOpen) topBarH + 40f else topBarH + 6f
         val gridBottom = h - bottomBarH - 6f
 
-        if (isGameDescriptionOpen) {
-            if (descCloseBtnRect.contains(x, y) || descBackBtnRect.contains(x, y)) {
-                closeGameDescription()
-                return
-            }
-            if (descLaunchBtnRect.contains(x, y)) {
-                val curSlot = slots.getOrNull(selectedIndex)
-                if (curSlot != null && curSlot.type != PlatformType.EMPTY) {
-                    SoundEffectEngine.playLaunchGame()
-                    listener?.onSlotOpenRequested(curSlot, selectedIndex)
-                }
-                return
-            }
-            if (descPrevBtnRect.contains(x, y)) {
-                selectPreviousGame()
-                return
-            }
-            if (descNextBtnRect.contains(x, y)) {
-                selectNextGame()
-                return
-            }
-            return
-        }
-
-        if (isSettingsPanelOpen) {
+        if (isAllAppsDrawerOpen) {
+            drawAllAppsDrawerPanel(canvas, w, h, gridTop, gridBottom, bottomBarH)
+            drawAuthenticBottomActionBar(canvas, w, h, bottomBarH)
+        } else if (isSettingsPanelOpen) {
             // 原版 3DS 风格的下屏内嵌「视频滤镜与系统设置」面板（开启时上屏视频继续实时播放预览！）
             drawAuthentic3dsSettingsPanel(canvas, w, h, gridTop, gridBottom, bottomBarH)
         } else if (isGameDescriptionOpen) {
@@ -1066,8 +1061,8 @@ class LowerScreenView @JvmOverloads constructor(
         val sideMargin = 16f
         val smallBtnW = btnSize * 0.96f
 
-        // 3. 顶栏所有图标从最左侧边框平行等距分布到最右侧边框 (精简为 7 枚 3DS 独立大图标，视觉宽敞通透)
-        val totalIcons = 7
+        // 3. 顶栏所有图标从最左侧边框平行等距分布到最右侧边框 (共 8 枚 3DS 独立大图标，宽敞通透)
+        val totalIcons = 8
         val availBarW = w - sideMargin * 2f
         val gap = ((availBarW - smallBtnW * totalIcons) / (totalIcons - 1).coerceAtLeast(1)).coerceAtLeast(6f)
         val leftStart = sideMargin
@@ -1082,7 +1077,15 @@ class LowerScreenView @JvmOverloads constructor(
             drawBeveledButton(canvas, homeSettingsRect, currentTheme.bottomBarButtonColor, currentTheme.slotBorderColor, 14f)
         }
 
-        // 1: 视频原声播放切换
+        // 1: 全部已安装应用·副屏抽屉
+        curLeft += smallBtnW + gap
+        allAppsBtnRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
+        val appsFill = if (isAllAppsDrawerOpen) Color.parseColor("#E0F2FE") else currentTheme.slotFillColor
+        val appsBorder = if (isAllAppsDrawerOpen) Color.parseColor("#0284C7") else currentTheme.slotBorderColor
+        drawBeveledButton(canvas, allAppsBtnRect, appsFill, appsBorder, 14f, isPrimary = isAllAppsDrawerOpen)
+        drawAllAppsDrawerButtonSymbol(canvas, allAppsBtnRect, isAllAppsDrawerOpen)
+
+        // 2: 视频原声播放切换
         curLeft += smallBtnW + gap
         videoAudioBtnRect.set(curLeft, padY, curLeft + smallBtnW, barH - padY)
         val audioBtnFill = if (isVideoAudioEnabled) Color.parseColor("#FFE4E6") else currentTheme.slotFillColor
@@ -1129,26 +1132,28 @@ class LowerScreenView @JvmOverloads constructor(
         drawBeveledButton(canvas, zoomInRect, currentTheme.slotFillColor, currentTheme.slotBorderColor, 14f)
         drawZoomButtonSymbol(canvas, zoomInRect, isZoomIn = true)
 
-        // 4. 当用户按 L2 / R2 键在顶栏 7 枚图标间切换时，绘制 3DS 四角发光选中框与悬浮功能名牌
-        if (selectedTopIconIndex in 0..6) {
+        // 4. 当用户按 L2 / R2 键在顶栏 8 枚图标间切换时，绘制 3DS 四角发光选中框与悬浮功能名牌
+        if (selectedTopIconIndex in 0..7) {
             val targetRect = when (selectedTopIconIndex) {
                 0 -> homeSettingsRect
-                1 -> videoAudioBtnRect
-                2 -> autoRandomBtnRect
-                3 -> appletRects[0]
-                4 -> appletRects[1]
-                5 -> zoomOutRect
+                1 -> allAppsBtnRect
+                2 -> videoAudioBtnRect
+                3 -> autoRandomBtnRect
+                4 -> appletRects[0]
+                5 -> appletRects[1]
+                6 -> zoomOutRect
                 else -> zoomInRect
             }
             draw3dsCornerCursor(canvas, targetRect)
 
             val topLabel = when (selectedTopIconIndex) {
                 0 -> "🏠 HOME菜单·主题与个性化设置 (按A打开)"
-                1 -> if (isVideoAudioEnabled) "🔊 关闭视频原声·恢复背景音乐 (按A切换)" else "▶ 暂停背景音乐·播放视频原声 (按A切换)"
-                2 -> if (isAutoRandomPlaying) "🎲 自动轮播游戏预览中 [每${autoRandomIntervalSec}秒] (按A停止)" else "🎲 开启自动随机轮播 [每${autoRandomIntervalSec}秒] (按A开启)"
-                3 -> "🏅 桌面徽章屋 (按A打开)"
-                4 -> "⚙ 游戏库与模拟器系统设置 (按A打开)"
-                5 -> "➖ 缩小游戏图标 (按A执行)"
+                1 -> "📱 全部已安装应用·副屏抽屉 (按A打开)"
+                2 -> if (isVideoAudioEnabled) "🔊 关闭视频原声·恢复背景音乐 (按A切换)" else "▶ 暂停背景音乐·播放视频原声 (按A切换)"
+                3 -> if (isAutoRandomPlaying) "🎲 自动轮播游戏预览中 [每${autoRandomIntervalSec}秒] (按A停止)" else "🎲 开启自动随机轮播 [每${autoRandomIntervalSec}秒] (按A开启)"
+                4 -> "🏅 桌面徽章屋 (按A打开)"
+                5 -> "⚙ 游戏库与模拟器系统设置 (按A打开)"
+                6 -> "➖ 缩小游戏图标 (按A执行)"
                 else -> "➕ 放大游戏图标 (按A执行)"
             }
             val tipText = "L2 ◀  $topLabel  ▶ R2"
@@ -1375,6 +1380,294 @@ class LowerScreenView @JvmOverloads constructor(
      * - 未开启时：蓝色圆角块 + 白色播放三角 `▶`
      * - 开启原声时：红色/珊瑚色发光圆角块 + 动态声波喇叭/均衡器条
      */
+    private fun calculateColorLuminance(color: Int): Float {
+        val r = Color.red(color) / 255f
+        val g = Color.green(color) / 255f
+        val b = Color.blue(color) / 255f
+        return 0.299f * r + 0.587f * g + 0.114f * b
+    }
+
+    private fun getHighContrastButtonTextColor(btnBgColor: Int, preferredColor: Int): Int {
+        val bgLum = calculateColorLuminance(btnBgColor)
+        val textLum = calculateColorLuminance(preferredColor)
+        val lighter = maxOf(bgLum, textLum)
+        val darker = minOf(bgLum, textLum)
+        val cr = (lighter + 0.05f) / (darker + 0.05f)
+        if (cr >= 3.2f) return preferredColor
+        return if (bgLum > 0.5f) Color.parseColor("#1A202C") else Color.parseColor("#FFFFFF")
+    }
+
+    private fun truncateText(text: String, maxW: Float, p: Paint): String {
+        if (p.measureText(text) <= maxW) return text
+        var str = text
+        while (str.length > 1 && p.measureText("$str…") > maxW) {
+            str = str.substring(0, str.length - 1)
+        }
+        return "$str…"
+    }
+
+    private fun drawAllAppsDrawerButtonSymbol(canvas: Canvas, r: RectF, active: Boolean) {
+        val cx = r.centerX()
+        val cy = r.centerY()
+        val s = minOf(r.width(), r.height()) * 0.28f
+        paint.style = Paint.Style.FILL
+        paint.color = if (active) Color.parseColor("#0284C7") else Color.parseColor("#0EA5E9")
+        paint.alpha = 255
+
+        val badgeRect = RectF(cx - s * 1.15f, cy - s * 1.15f, cx + s * 1.15f, cy + s * 1.15f)
+        canvas.drawRoundRect(badgeRect, s * 0.45f, s * 0.45f, paint)
+
+        // 绘制 4 个精致的 3DS 小方块应用网格图标 (2x2)
+        paint.color = Color.WHITE
+        val tilePad = s * 0.22f
+        val tileGap = s * 0.20f
+        val tileS = (s * 2.3f - tilePad * 2f - tileGap) / 2f
+        val startX = cx - s * 1.15f + tilePad
+        val startY = cy - s * 1.15f + tilePad
+
+        for (row in 0..1) {
+            for (col in 0..1) {
+                val tLeft = startX + col * (tileS + tileGap)
+                val tTop = startY + row * (tileS + tileGap)
+                canvas.drawRoundRect(RectF(tLeft, tTop, tLeft + tileS, tTop + tileS), 3f, 3f, paint)
+            }
+        }
+    }
+
+    fun openAllAppsDrawer() {
+        if (isSettingsPanelOpen) {
+            closeSettingsPanel()
+        }
+        if (isGameDescriptionOpen) {
+            closeGameDescription()
+        }
+        allInstalledApps = listener?.onGetAllInstalledApps() ?: emptyList()
+        preloadIcons(allInstalledApps)
+        isAllAppsDrawerOpen = true
+        appsScrollY = 0f
+        targetAppsScrollY = 0f
+        SoundEffectEngine.playSelectApplet()
+        invalidate()
+    }
+
+    fun closeAllAppsDrawer() {
+        if (isAllAppsDrawerOpen) {
+            isAllAppsDrawerOpen = false
+            selectedTopIconIndex = -1
+            SoundEffectEngine.playBackCancel()
+            invalidate()
+        }
+    }
+
+    fun toggleAllAppsDrawer() {
+        if (isAllAppsDrawerOpen) {
+            closeAllAppsDrawer()
+        } else {
+            openAllAppsDrawer()
+        }
+    }
+
+    private fun drawAllAppsDrawerPanel(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        panelTop: Float,
+        panelBottom: Float,
+        bottomBarH: Float
+    ) {
+        val sideMargin = 16f
+        stageWellRect.set(sideMargin, panelTop, w - sideMargin, panelBottom)
+        val stageRadius = 26f
+
+        // 1. 底盘投影
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(32, 0, 0, 0)
+        canvas.drawRoundRect(
+            RectF(stageWellRect.left, stageWellRect.top + 3f, stageWellRect.right, stageWellRect.bottom + 3f),
+            stageRadius, stageRadius, paint
+        )
+
+        // 2. 底盘渐变背景卡片
+        val isDark = calculateColorLuminance(currentTheme.bottomBarButtonColor) < 0.45f
+        val bgTop = if (isDark) blendColor(currentTheme.lowerBgTop, Color.WHITE, 0.12f) else blendColor(currentTheme.slotFillColor, Color.WHITE, 0.45f)
+        val bgBottom = currentTheme.lowerBgBottom
+        paint.shader = LinearGradient(
+            0f, stageWellRect.top, 0f, stageWellRect.bottom,
+            bgTop, bgBottom, Shader.TileMode.CLAMP
+        )
+        canvas.drawRoundRect(stageWellRect, stageRadius, stageRadius, paint)
+        paint.shader = null
+
+        // 3. Header 区域 (高度 64px)
+        val headerH = 64f
+        val headerTop = stageWellRect.top + 8f
+        val headerBottom = headerTop + headerH
+        val headerLeft = stageWellRect.left + 18f
+        val headerRight = stageWellRect.right - 18f
+
+        // 右上角关闭按钮 [ ✕ 关闭 ]
+        val closeBtnW = 96f
+        val closeBtnH = 40f
+        appsCloseBtnRect.set(headerRight - closeBtnW, headerTop + (headerH - closeBtnH) / 2f, headerRight, headerTop + (headerH + closeBtnH) / 2f)
+        draw3dsSculptedDockButton(
+            canvas = canvas,
+            r = appsCloseBtnRect,
+            radius = closeBtnH * 0.44f,
+            isPrimary = false,
+            accentOverride = Color.parseColor("#94A3B8"),
+            drawOutline = true
+        )
+        textPaint.typeface = apolloMediumTypeface
+        textPaint.textSize = 17f
+        textPaint.color = if (isDark) Color.WHITE else Color.parseColor("#334155")
+        textPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("✕ 关闭", appsCloseBtnRect.centerX(), appsCloseBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+
+        // Header 左侧标题与副标题
+        textPaint.typeface = boldTypeface
+        textPaint.textSize = 24f
+        textPaint.color = currentTheme.textPrimaryColor
+        textPaint.textAlign = Paint.Align.LEFT
+        val titleText = "📱 全部已安装应用 (Android Apps)"
+        val titleY = headerTop + 28f
+        canvas.drawText(titleText, headerLeft, titleY, textPaint)
+
+        textPaint.typeface = apolloRegularTypeface
+        textPaint.textSize = 15f
+        textPaint.color = currentTheme.textSecondaryColor
+        val subtitleText = "共 ${allInstalledApps.size} 款应用 · 点击卡片在副屏全屏启动 · 独立副屏多任务"
+        canvas.drawText(subtitleText, headerLeft, headerTop + 54f, textPaint)
+
+        // 4. 应用列表区域（裁切并滚动）
+        val listTop = headerBottom + 6f
+        val listBottom = stageWellRect.bottom - 12f
+        val listLeft = stageWellRect.left + 16f
+        val listRight = stageWellRect.right - 16f
+        val listAvailW = listRight - listLeft
+
+        canvas.save()
+        canvas.clipRect(listLeft, listTop, listRight, listBottom)
+
+        // 2 列网格卡片
+        val cols = 2
+        val colGap = 12f
+        val rowGap = 10f
+        val cardW = (listAvailW - colGap * (cols - 1)) / cols
+        val cardH = 82f
+
+        val totalRows = kotlin.math.ceil(allInstalledApps.size / cols.toFloat()).toInt()
+        val totalContentH = totalRows * (cardH + rowGap)
+        val viewportH = listBottom - listTop
+        maxAppsScrollY = (totalContentH - viewportH + 20f).coerceAtLeast(0f)
+        appsScrollY += (targetAppsScrollY - appsScrollY) * 0.35f
+
+        val curScroll = appsScrollY
+
+        for (i in allInstalledApps.indices) {
+            val app = allInstalledApps[i]
+            val row = i / cols
+            val col = i % cols
+            val cardTop = listTop - curScroll + row * (cardH + rowGap)
+            val cardBottom = cardTop + cardH
+            if (cardBottom < listTop - 10f || cardTop > listBottom + 10f) continue // 视野外剔除
+
+            val cardLeft = listLeft + col * (cardW + colGap)
+            val cardRight = cardLeft + cardW
+            val cardRect = RectF(cardLeft, cardTop, cardRight, cardBottom)
+
+            // 绘制 3D 浮雕卡片
+            val cardR = 16f
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(18, 0, 0, 0)
+            canvas.drawRoundRect(RectF(cardLeft, cardTop + 2f, cardRight, cardBottom + 2f), cardR, cardR, paint)
+
+            val cardBgTop = if (isDark) blendColor(currentTheme.slotFillColor, Color.WHITE, 0.15f) else Color.WHITE
+            val cardBgBottom = if (isDark) blendColor(currentTheme.slotFillColor, Color.BLACK, 0.10f) else blendColor(Color.WHITE, currentTheme.slotFillColor, 0.50f)
+            paint.shader = LinearGradient(0f, cardTop, 0f, cardBottom, cardBgTop, cardBgBottom, Shader.TileMode.CLAMP)
+            canvas.drawRoundRect(cardRect, cardR, cardR, paint)
+            paint.shader = null
+
+            // 描边
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.2f
+            paint.color = if (isDark) Color.argb(45, 255, 255, 255) else Color.argb(160, 203, 213, 225)
+            canvas.drawRoundRect(cardRect, cardR, cardR, paint)
+            paint.style = Paint.Style.FILL
+
+            // 图标
+            val iconPad = 12f
+            val iconSize = cardH - iconPad * 2f
+            val iconRect = RectF(cardLeft + iconPad, cardTop + iconPad, cardLeft + iconPad + iconSize, cardBottom - iconPad)
+            val bmp = iconCache[getIconCacheKey(app)]
+            if (bmp != null && !bmp.isRecycled) {
+                canvas.drawBitmap(bmp, null, iconRect, bitmapPaint)
+            } else {
+                paint.color = Color.parseColor("#38BDF8")
+                canvas.drawRoundRect(iconRect, 10f, 10f, paint)
+                textPaint.color = Color.WHITE
+                textPaint.textSize = 20f
+                textPaint.textAlign = Paint.Align.CENTER
+                canvas.drawText("📱", iconRect.centerX(), iconRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+            }
+
+            // 卡片右侧快捷按键区域：[🖥️主屏] 按键 (w=68, h=32)
+            val btnW = 68f
+            val btnH = 34f
+            val btnMainX = cardRight - iconPad - btnW
+            val btnMainY = cardTop + (cardH - btnH) / 2f
+            val mainBtnRect = RectF(btnMainX, btnMainY, btnMainX + btnW, btnMainY + btnH)
+
+            // 文字区域：居中偏左
+            val textLeft = iconRect.right + 10f
+            val textMaxW = mainBtnRect.left - textLeft - 8f
+
+            textPaint.typeface = apolloMediumTypeface
+            textPaint.textSize = 17f
+            textPaint.color = if (isDark) Color.WHITE else Color.parseColor("#0F172A")
+            textPaint.textAlign = Paint.Align.LEFT
+            val titleStr = truncateText(app.title, textMaxW, textPaint)
+            canvas.drawText(titleStr, textLeft, cardTop + 33f, textPaint)
+
+            // 包名
+            textPaint.typeface = apolloRegularTypeface
+            textPaint.textSize = 12f
+            textPaint.color = if (isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
+            val pkgStr = truncateText(app.packageName, textMaxW, textPaint)
+            canvas.drawText(pkgStr, textLeft, cardTop + 54f, textPaint)
+
+            // [🖥️主屏] 按钮绘制
+            draw3dsSculptedDockButton(
+                canvas = canvas,
+                r = mainBtnRect,
+                radius = 10f,
+                isPrimary = false,
+                accentOverride = Color.parseColor("#0284C7"),
+                drawOutline = true
+            )
+            textPaint.typeface = apolloMediumTypeface
+            textPaint.textSize = 13f
+            textPaint.color = if (isDark) Color.WHITE else Color.parseColor("#0369A1")
+            textPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText("🖥️主屏", mainBtnRect.centerX(), mainBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f, textPaint)
+        }
+
+        canvas.restore()
+
+        // 绘制滚动指示条
+        if (maxAppsScrollY > 0f) {
+            val trackH = listBottom - listTop
+            val thumbH = (trackH * (viewportH / totalContentH)).coerceIn(24f, trackH * 0.7f)
+            val thumbTop = listTop + (trackH - thumbH) * (curScroll / maxAppsScrollY)
+            val scrollTrackRect = RectF(listRight + 4f, listTop, listRight + 9f, listBottom)
+            paint.color = Color.argb(25, 100, 116, 139)
+            canvas.drawRoundRect(scrollTrackRect, 2.5f, 2.5f, paint)
+
+            paint.color = Color.argb(140, 2, 132, 199)
+            val thumbRect = RectF(listRight + 3.5f, thumbTop, listRight + 9.5f, thumbTop + thumbH)
+            canvas.drawRoundRect(thumbRect, 3f, 3f, paint)
+        }
+    }
+
     private fun drawVideoAudioButtonSymbol(canvas: Canvas, r: RectF, active: Boolean) {
         val cx = r.centerX()
         val cy = r.centerY()
@@ -2014,13 +2307,19 @@ class LowerScreenView @JvmOverloads constructor(
         draw3dsSculptedDockButton(canvas, bottomCenterBtnRect, centerR, isPrimary = true, accentOverride = curCat.accentColor)
         draw3dsSculptedDockButton(canvas, bottomRightBtnRect, sideR, isPrimary = false, accentOverride = curCat.accentColor)
 
+        val isDarkBtnTheme = calculateColorLuminance(currentTheme.bottomBarButtonColor) < 0.45f
+        val sideBtnBg = if (isDarkBtnTheme) currentTheme.bottomBarButtonColor else Color.WHITE
+        val centerBtnBg = if (isDarkBtnTheme) currentTheme.bottomBarButtonColor else Color.WHITE
+        val sideTextColor = getHighContrastButtonTextColor(sideBtnBg, currentTheme.textPrimaryColor)
+        val centerTextColor = getHighContrastButtonTextColor(centerBtnBg, currentTheme.textPrimaryColor)
+
         if (movingSourceIndex >= 0) {
             // 移动换位模式提示
             val sideFontSize = (bottomLeftBtnRect.height() * 0.36f).coerceIn(13f, 18f)
             textPaint.typeface = apolloMediumTypeface
             textPaint.isFakeBoldText = false
             textPaint.textSize = sideFontSize
-            textPaint.color = currentTheme.textPrimaryColor
+            textPaint.color = sideTextColor
             textPaint.textAlign = Paint.Align.CENTER
             val cy = bottomLeftBtnRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f
             canvas.drawText("取消移动", bottomLeftBtnRect.centerX(), cy, textPaint)
@@ -2066,7 +2365,7 @@ class LowerScreenView @JvmOverloads constructor(
         val leftMaxW = (bottomLeftBtnRect.right - l1Rect.right - 14f).coerceAtLeast(40f)
         textPaint.typeface = apolloRegularTypeface
         textPaint.isFakeBoldText = false
-        textPaint.color = currentTheme.textPrimaryColor
+        textPaint.color = sideTextColor
         textPaint.textSize = baseSideFontSize
         val leftMeasured = textPaint.measureText(leftLabel)
         if (leftMeasured > leftMaxW) {
@@ -2101,7 +2400,7 @@ class LowerScreenView @JvmOverloads constructor(
         val rightMaxW = (r1Rect.left - bottomRightBtnRect.left - 14f).coerceAtLeast(40f)
         textPaint.typeface = apolloRegularTypeface
         textPaint.isFakeBoldText = false
-        textPaint.color = currentTheme.textPrimaryColor
+        textPaint.color = sideTextColor
         textPaint.textSize = baseSideFontSize
         val rightMeasured = textPaint.measureText(rightLabel)
         if (rightMeasured > rightMaxW) {
@@ -2157,7 +2456,7 @@ class LowerScreenView @JvmOverloads constructor(
             textPaint
         )
 
-        textPaint.color = currentTheme.textPrimaryColor
+        textPaint.color = centerTextColor
         textPaint.textSize = centerFontSize
         textPaint.textAlign = Paint.Align.LEFT
         canvas.drawText(
@@ -2198,14 +2497,18 @@ class LowerScreenView @JvmOverloads constructor(
         drawOutline: Boolean = true,
         isSolid: Boolean = false
     ) {
+        val isDarkBtn = calculateColorLuminance(currentTheme.bottomBarButtonColor) < 0.45f
+
         // 1. 底部投影
         paint.style = Paint.Style.FILL
-        paint.color = if (isSolid) Color.argb(65, 0, 0, 0) else Color.argb(46, 8, 20, 38)
+        paint.color = if (isSolid || isDarkBtn) Color.argb(65, 0, 0, 0) else Color.argb(46, 8, 20, 38)
         canvas.drawRoundRect(RectF(r.left, r.top + 3.5f, r.right, r.bottom + 3.5f), radius, radius, paint)
 
         // 2. 实体按键底部立体厚唇边 (3D Bottom Lip)
         paint.color = if (isSolid) {
             blendColor(accentOverride, Color.BLACK, 0.28f)
+        } else if (isDarkBtn) {
+            blendColor(currentTheme.bottomBarButtonColor, Color.BLACK, 0.38f)
         } else if (isPrimary) {
             blendColor(accentOverride, Color.BLACK, 0.15f)
         } else {
@@ -2213,18 +2516,26 @@ class LowerScreenView @JvmOverloads constructor(
         }
         canvas.drawRoundRect(RectF(r.left, r.top + 2f, r.right, r.bottom + 2f), radius, radius, paint)
 
-        // 3. 丝滑全高垂直渐变 (如果是实心强调按钮，采用明亮高饱和渐变，确保白色文字晶莹剔透)
-        val topColor = if (isSolid) {
-            blendColor(accentOverride, Color.WHITE, 0.28f)
+        // 3. 丝滑全高垂直渐变
+        val topColor: Int
+        val bottomColor: Int
+        if (isSolid) {
+            topColor = blendColor(accentOverride, Color.WHITE, 0.28f)
+            bottomColor = blendColor(accentOverride, Color.BLACK, 0.12f)
+        } else if (isDarkBtn) {
+            topColor = blendColor(currentTheme.bottomBarButtonColor, Color.WHITE, 0.22f)
+            bottomColor = if (isPrimary) {
+                blendColor(currentTheme.bottomBarButtonColor, accentOverride, 0.30f)
+            } else {
+                blendColor(currentTheme.bottomBarButtonColor, Color.BLACK, 0.25f)
+            }
         } else {
-            Color.WHITE
-        }
-        val bottomColor = if (isSolid) {
-            blendColor(accentOverride, Color.BLACK, 0.12f)
-        } else if (isPrimary) {
-            blendColor(Color.WHITE, accentOverride, 0.20f)
-        } else {
-            blendColor(Color.WHITE, currentTheme.bottomBarButtonColor, 0.65f)
+            topColor = Color.WHITE
+            bottomColor = if (isPrimary) {
+                blendColor(Color.WHITE, accentOverride, 0.20f)
+            } else {
+                blendColor(Color.WHITE, currentTheme.bottomBarButtonColor, 0.65f)
+            }
         }
         paint.shader = LinearGradient(
             0f, r.top, 0f, r.bottom,
@@ -2236,10 +2547,10 @@ class LowerScreenView @JvmOverloads constructor(
         paint.shader = null
 
         if (drawOutline) {
-            // 4. 内侧瓷白高光环
+            // 4. 内侧高光环
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 1.6f
-            paint.color = if (isSolid) Color.argb(130, 255, 255, 255) else Color.argb(200, 255, 255, 255)
+            paint.color = if (isDarkBtn) Color.argb(45, 255, 255, 255) else Color.argb(200, 255, 255, 255)
             canvas.drawRoundRect(
                 RectF(r.left + 1.8f, r.top + 1.8f, r.right - 1.8f, r.bottom - 1.8f),
                 (radius - 1.5f).coerceAtLeast(4f),
@@ -2249,11 +2560,18 @@ class LowerScreenView @JvmOverloads constructor(
 
             // 5. 外框立体描边
             paint.strokeWidth = if (isSolid || isPrimary) 2.2f else 1.2f
-            paint.color = if (isSolid) blendColor(accentOverride, Color.BLACK, 0.18f) else if (isPrimary) accentOverride else currentTheme.slotBorderColor
+            paint.color = if (isDarkBtn) {
+                if (isPrimary || isSolid) accentOverride else blendColor(currentTheme.bottomBarButtonColor, Color.WHITE, 0.20f)
+            } else if (isSolid || isPrimary) {
+                accentOverride
+            } else {
+                currentTheme.slotBorderColor
+            }
             canvas.drawRoundRect(r, radius, radius, paint)
             paint.style = Paint.Style.FILL
         }
     }
+
 
     /**
      * 原版 Nintendo 3DS HOME 菜单风格的「视频滤镜与系统设置」内嵌面板：
@@ -2868,6 +3186,10 @@ class LowerScreenView @JvmOverloads constructor(
     }
 
     fun handleBackPressed(): Boolean {
+        if (isAllAppsDrawerOpen) {
+            closeAllAppsDrawer()
+            return true
+        }
         if (isGameDescriptionOpen) {
             closeGameDescription()
             return true
@@ -2909,6 +3231,9 @@ class LowerScreenView @JvmOverloads constructor(
     }
 
     fun openSettingsPanel(initialTab: Int = 0) {
+        if (isAllAppsDrawerOpen) {
+            isAllAppsDrawerOpen = false
+        }
         if (isGameDescriptionOpen) {
             isGameDescriptionOpen = false
         }
@@ -5610,7 +5935,13 @@ class LowerScreenView @JvmOverloads constructor(
         if (homeSettingsRect.contains(x, y)) {
             selectedTopIconIndex = -1
             SoundEffectEngine.playSelectApplet()
-            openSettingsPanel(initialTab = 1) // 方案 A：第 1 个图标负责 HOME 桌面、主题与个性化
+            openSettingsPanel(initialTab = 1)
+            return
+        }
+
+        if (allAppsBtnRect.contains(x, y)) {
+            selectedTopIconIndex = -1
+            toggleAllAppsDrawer()
             return
         }
 
@@ -5650,6 +5981,11 @@ class LowerScreenView @JvmOverloads constructor(
                 listener?.onAppletClicked(applets[i])
                 return
             }
+        }
+
+        if (isAllAppsDrawerOpen) {
+            handleAllAppsDrawerTap(x, y)
+            return
         }
 
         // 若当前已展开原版 3DS 设置/滤镜面板，优先响应面板内的标签页、卡片与底部栏点击
@@ -5784,7 +6120,108 @@ class LowerScreenView @JvmOverloads constructor(
         }
     }
 
+    private fun handleAllAppsDrawerTap(x: Float, y: Float) {
+        if (appsCloseBtnRect.contains(x, y)) {
+            closeAllAppsDrawer()
+            return
+        }
+
+        val h = height.toFloat()
+        val topBarH = (h * 0.135f).coerceIn(56f, 118f)
+        val bottomBarH = (h * 0.105f).coerceIn(58f, 96f)
+        val panelTop = topBarH + 6f
+        val panelBottom = h - bottomBarH - 6f
+        val headerH = 64f
+        val listTop = panelTop + 8f + headerH + 6f
+        val listBottom = panelBottom - 12f
+        val listLeft = 16f + 16f
+        val listRight = width.toFloat() - 16f - 16f
+        val listAvailW = listRight - listLeft
+
+        if (x in listLeft..listRight && y in listTop..listBottom) {
+            val cols = 2
+            val colGap = 12f
+            val rowGap = 10f
+            val cardW = (listAvailW - colGap * (cols - 1)) / cols
+            val cardH = 82f
+
+            val relY = y - listTop + appsScrollY
+            val row = (relY / (cardH + rowGap)).toInt()
+            val relX = x - listLeft
+            val col = if (relX in 0f..cardW) {
+                0
+            } else if (relX in (cardW + colGap)..(cardW * 2f + colGap)) {
+                1
+            } else {
+                -1
+            }
+
+            if (col in 0..1 && row >= 0) {
+                val appIdx = row * cols + col
+                if (appIdx in allInstalledApps.indices) {
+                    val app = allInstalledApps[appIdx]
+                    val cardLeft = listLeft + col * (cardW + colGap)
+                    val cardRight = cardLeft + cardW
+                    val cardTop = listTop - appsScrollY + row * (cardH + rowGap)
+                    val btnW = 68f
+                    val btnH = 34f
+                    val btnMainX = cardRight - 12f - btnW
+                    val btnMainY = cardTop + (cardH - btnH) / 2f
+                    val mainBtnRect = RectF(btnMainX, btnMainY, btnMainX + btnW, btnMainY + btnH)
+
+                    if (mainBtnRect.contains(x, y)) {
+                        // 在主屏启动
+                        listener?.onLaunchInstalledAppRequested(app.packageName, app.activityName, launchOnSubscreen = false)
+                    } else {
+                        // 在副屏全屏启动
+                        listener?.onLaunchInstalledAppRequested(app.packageName, app.activityName, launchOnSubscreen = true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleAllAppsDrawerLongPress(x: Float, y: Float) {
+        val h = height.toFloat()
+        val topBarH = (h * 0.135f).coerceIn(56f, 118f)
+        val bottomBarH = (h * 0.105f).coerceIn(58f, 96f)
+        val panelTop = topBarH + 6f
+        val panelBottom = h - bottomBarH - 6f
+        val headerH = 64f
+        val listTop = panelTop + 8f + headerH + 6f
+        val listBottom = panelBottom - 12f
+        val listLeft = 16f + 16f
+        val listRight = width.toFloat() - 16f - 16f
+        val listAvailW = listRight - listLeft
+
+        if (x in listLeft..listRight && y in listTop..listBottom) {
+            val cols = 2
+            val colGap = 12f
+            val rowGap = 10f
+            val cardW = (listAvailW - colGap * (cols - 1)) / cols
+            val cardH = 82f
+
+            val relY = y - listTop + appsScrollY
+            val row = (relY / (cardH + rowGap)).toInt()
+            val relX = x - listLeft
+            val col = if (relX in 0f..cardW) 0 else if (relX in (cardW + colGap)..(cardW * 2f + colGap)) 1 else -1
+
+            if (col in 0..1 && row >= 0) {
+                val appIdx = row * cols + col
+                if (appIdx in allInstalledApps.indices) {
+                    val app = allInstalledApps[appIdx]
+                    // 长按将应用快捷方式固定到 3DS 桌面网格
+                    listener?.onAddAppToDesktopRequested(app)
+                }
+            }
+        }
+    }
+
     private fun handleLongPress(x: Float, y: Float) {
+        if (isAllAppsDrawerOpen) {
+            handleAllAppsDrawerLongPress(x, y)
+            return
+        }
         if (isSettingsPanelOpen) return
         for ((index, slotRect) in slotScreenRects) {
             if (slotRect.contains(x, y)) {
@@ -5804,7 +6241,7 @@ class LowerScreenView @JvmOverloads constructor(
      * 按 L2 / R2 键切换下屏顶部的 9 个功能图标（0=HOME设置, 1=游戏库与模拟器平台, 2=视频原声播放开关, 3=自动随机轮播, 4=游戏笔记, 5=桌面徽章, 6=滤镜·设置, 7=缩小网格, 8=放大网格）
      */
     fun stepTopBarIcon(delta: Int) {
-        val totalTopIcons = 7
+        val totalTopIcons = 8
         selectedTopIconIndex = if (selectedTopIconIndex < 0) {
             if (delta >= 0) 0 else totalTopIcons - 1
         } else {
@@ -5814,8 +6251,9 @@ class LowerScreenView @JvmOverloads constructor(
             0 -> SystemAppletType.HOME_SETTINGS
             1 -> SystemAppletType.NONE
             2 -> SystemAppletType.NONE
-            3 -> applets[0]
-            4 -> applets[1]
+            3 -> SystemAppletType.NONE
+            4 -> applets[0]
+            5 -> applets[1]
             else -> SystemAppletType.NONE
         }
         listener?.onTopIconFocused(selectedTopIconIndex, previewApplet)
@@ -5826,21 +6264,22 @@ class LowerScreenView @JvmOverloads constructor(
      * 当焦点在顶栏图标上时按 A 键触发对应功能
      */
     fun activateFocusedTopIcon(): Boolean {
-        if (selectedTopIconIndex !in 0..6) return false
+        if (selectedTopIconIndex !in 0..7) return false
         when (selectedTopIconIndex) {
             0 -> openSettingsPanel(initialTab = 1) // 方案 A：第 1 个图标负责 HOME 桌面、主题与个性化
-            1 -> listener?.onVideoAudioToggleRequested()
-            2 -> {
+            1 -> toggleAllAppsDrawer()             // 📱 全部已安装应用副屏抽屉
+            2 -> listener?.onVideoAudioToggleRequested()
+            3 -> {
                 isAutoRandomPlaying = !isAutoRandomPlaying
                 listener?.onAutoRandomToggled()
             }
-            3 -> listener?.onAppletClicked(applets[0])
-            4 -> listener?.onAppletClicked(applets[1]) // 方案 A：倒数第 3 个图标负责游戏库与模拟器系统设置
-            5 -> if (gridRows < 6) {
+            4 -> listener?.onAppletClicked(applets[0])
+            5 -> listener?.onAppletClicked(applets[1])
+            6 -> if (gridRows < 6) {
                 gridRows += 1
                 listener?.onZoomChanged(gridRows, zoomIn = false)
             }
-            6 -> if (gridRows > 1) {
+            7 -> if (gridRows > 1) {
                 gridRows -= 1
                 listener?.onZoomChanged(gridRows, zoomIn = true)
             }
@@ -6933,6 +7372,9 @@ class LowerScreenView @JvmOverloads constructor(
 
 
     fun openGameDescription() {
+        if (isAllAppsDrawerOpen) {
+            isAllAppsDrawerOpen = false
+        }
         if (isSettingsPanelOpen) {
             closeSettingsPanel()
         }

@@ -885,7 +885,7 @@ object ThemeCatalog {
             cursorGlowColor = Color.parseColor("#80F2FF"),
             topBarBgColor = Color.parseColor("#1D2228"),
             bottomBarBgColor = Color.parseColor("#181C22"),
-            bottomBarButtonColor = Color.parseColor("#2D3540"),
+            bottomBarButtonColor = Color.parseColor("#1E242C"),
             textPrimaryColor = Color.parseColor("#ECF2F8"),
             textSecondaryColor = Color.parseColor("#9BA8B8"),
             bgmScaleNotes = intArrayOf(440, 523, 659, 784, 880) // A4, C5, E5, G5, A5
@@ -927,7 +927,7 @@ object ThemeCatalog {
             cursorGlowColor = Color.parseColor("#FFF29C"),
             topBarBgColor = Color.parseColor("#142136"),
             bottomBarBgColor = Color.parseColor("#0E1726"),
-            bottomBarButtonColor = Color.parseColor("#2B4268"),
+            bottomBarButtonColor = Color.parseColor("#142032"),
             textPrimaryColor = Color.parseColor("#F7E7B4"),
             textSecondaryColor = Color.parseColor("#B5A268"),
             bgmScaleNotes = intArrayOf(440, 587, 659, 880, 784) // Ocarina-style intervals
