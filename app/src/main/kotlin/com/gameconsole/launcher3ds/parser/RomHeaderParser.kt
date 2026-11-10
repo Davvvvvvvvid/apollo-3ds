@@ -28,21 +28,29 @@ object RomHeaderParser {
      * 解析 .nds / .3ds / .cci / .cia 游戏文件头，提取真实图标、标题、厂商与编号
      */
     fun parseRomFile(context: Context, file: File): ParsedRomMetadata {
-        val ext = file.extension.lowercase()
-        val iconDir = File(context.filesDir, "rom_icons").apply { mkdirs() }
-        val cacheKey = md5("${file.absolutePath}_${file.length()}_${file.lastModified()}")
-        val cachedIconFile = File(iconDir, "$cacheKey.png")
+        return try {
+            val ext = file.extension.lowercase()
+            val iconDir = File(context.filesDir, "rom_icons").apply { mkdirs() }
+            val cacheKey = md5("${file.absolutePath}_${file.length()}_${file.lastModified()}")
+            val cachedIconFile = File(iconDir, "$cacheKey.png")
 
-        // 1. 优先检查同目录下是否有同名封面图 (.png / .jpg / .webp)
-        val sidecarBitmap = findSidecarCover(file)
-        if (sidecarBitmap != null && !cachedIconFile.exists()) {
-            saveBitmap(sidecarBitmap, cachedIconFile)
-        }
+            // 1. 仅当本地图标缓存不存在时，才尝试检查同目录下是否有同名封面图 (.png / .jpg / .webp)
+            if (!cachedIconFile.exists()) {
+                val sidecarBitmap = findSidecarCover(file)
+                if (sidecarBitmap != null) {
+                    saveBitmap(sidecarBitmap, cachedIconFile)
+                    sidecarBitmap.recycle()
+                }
+            }
 
-        return when (ext) {
-            "nds" -> parseNdsRom(file, cachedIconFile)
-            "3ds", "cci", "cia", "cxi", "app" -> parse3dsRom(file, cachedIconFile)
-            else -> fallbackMetadata(file, cachedIconFile, is3ds = true)
+            when (ext) {
+                "nds" -> parseNdsRom(file, cachedIconFile)
+                "3ds", "cci", "cia", "cxi", "app" -> parse3dsRom(file, cachedIconFile)
+                else -> fallbackMetadata(file, cachedIconFile, is3ds = true)
+            }
+        } catch (_: Throwable) {
+            val fallbackIcon = File(context.filesDir, "rom_icons/fallback.png")
+            fallbackMetadata(file, fallbackIcon, is3ds = false)
         }
     }
 
@@ -92,6 +100,7 @@ object RomHeaderParser {
                         if (bmp != null) {
                             primaryColor = extractDominantColor(bmp, Color.parseColor("#2B3A4A"))
                             saveBitmap(bmp, cachedIconFile)
+                            bmp.recycle()
                         }
                     }
 
@@ -143,7 +152,7 @@ object RomHeaderParser {
                     secondaryColor = Color.parseColor("#DCE2E8")
                 )
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             return fallbackMetadata(file, cachedIconFile, is3ds = false)
         }
     }
@@ -186,9 +195,11 @@ object RomHeaderParser {
                 }
             }
             val rawBmp = Bitmap.createBitmap(pixels, 32, 32, Bitmap.Config.ARGB_8888)
-            // 使用最近邻插值放大到 96x96，保留锐利像素颗粒感
-            Bitmap.createScaledBitmap(rawBmp, 96, 96, false)
-        } catch (_: Exception) {
+            // 使用最近邻插值放大到 96x96，保留锐利像素颗粒感，并立即回收原始临时位图
+            val scaled = Bitmap.createScaledBitmap(rawBmp, 96, 96, false)
+            if (scaled != rawBmp) rawBmp.recycle()
+            scaled
+        } catch (_: Throwable) {
             null
         }
     }
@@ -239,6 +250,7 @@ object RomHeaderParser {
                         if (bmp != null) {
                             primaryColor = extractDominantColor(bmp, Color.parseColor("#00A8E8"))
                             saveBitmap(bmp, cachedIconFile)
+                            bmp.recycle()
                         }
                     }
                 }
@@ -268,7 +280,7 @@ object RomHeaderParser {
                     secondaryColor = Color.parseColor("#FFFFFF")
                 )
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             return fallbackMetadata(file, cachedIconFile, is3ds = true)
         }
     }
@@ -349,8 +361,10 @@ object RomHeaderParser {
                 }
             }
             val rawBmp = Bitmap.createBitmap(pixels, 48, 48, Bitmap.Config.ARGB_8888)
-            Bitmap.createScaledBitmap(rawBmp, 96, 96, true)
-        } catch (_: Exception) {
+            val scaled = Bitmap.createScaledBitmap(rawBmp, 96, 96, true)
+            if (scaled != rawBmp) rawBmp.recycle()
+            scaled
+        } catch (_: Throwable) {
             null
         }
     }
@@ -413,12 +427,30 @@ object RomHeaderParser {
         val exts = listOf("png", "jpg", "jpeg", "webp")
         val searchDirs = listOf(parent, File(parent, "covers"), File(parent, "icons"))
         for (dir in searchDirs) {
-            if (!dir.exists()) continue
+            if (!dir.exists() || !dir.isDirectory) continue
             for (e in exts) {
                 val candidate = File(dir, "$base.$e")
-                if (candidate.exists() && candidate.length() > 64) {
-                    val bmp = BitmapFactory.decodeFile(candidate.absolutePath)
-                    if (bmp != null) return Bitmap.createScaledBitmap(bmp, 96, 96, true)
+                if (candidate.exists() && candidate.length() in 64..30_000_000) {
+                    try {
+                        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(candidate.absolutePath, boundsOpts)
+                        val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
+                        var sample = 1
+                        while (maxDim / (sample * 2) >= 96) {
+                            sample *= 2
+                        }
+                        val decodeOpts = BitmapFactory.Options().apply {
+                            inSampleSize = sample
+                            inPreferredConfig = Bitmap.Config.RGB_565
+                        }
+                        val bmp = BitmapFactory.decodeFile(candidate.absolutePath, decodeOpts)
+                        if (bmp != null) {
+                            val scaled = Bitmap.createScaledBitmap(bmp, 96, 96, true)
+                            if (scaled != bmp) bmp.recycle()
+                            return scaled
+                        }
+                    } catch (_: Throwable) {
+                    }
                 }
             }
         }

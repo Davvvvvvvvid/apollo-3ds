@@ -112,6 +112,8 @@ class LowerScreenView @JvmOverloads constructor(
         fun onRemoveAllMediaLibrariesRequested()
         fun onToggleHideGamesWithoutCoverRequested()
         fun onToggleHideGamesWithoutRomRequested()
+        fun onToggleVideoPreviewRequested(enabled: Boolean)
+        fun onBatchScrapeCoversRequested()
         fun onGetStorageRoots(): List<java.io.File>
         fun onDirectoryChosenForMount(path: String)
         fun onCategoryManagerRequested()
@@ -337,6 +339,12 @@ class LowerScreenView @JvmOverloads constructor(
         }
 
     var hideGamesWithoutRom: Boolean = false
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    var isVideoPreviewEnabled: Boolean = true
         set(value) {
             field = value
             invalidate()
@@ -609,7 +617,7 @@ class LowerScreenView @JvmOverloads constructor(
     private val stepPlus5BtnRect = RectF()
     private val presetChipRects = Array(8) { RectF() }
     private val intervalPlayToggleBtnRect = RectF()
-    private val advancedCardRects = Array(10) { RectF() }
+    private val advancedCardRects = Array(12) { RectF() }
     private val romDirCardRects = Array(8) { RectF() }
     private var mediaLibScrollY: Float = 0f
     private var targetMediaLibScrollY: Float = 0f
@@ -1951,12 +1959,20 @@ class LowerScreenView @JvmOverloads constructor(
 
         val startX = sideArrowReserve + 14f - scrollOffsetX
         val startY = gridTop + (availH - (rows * cellSize + (rows - 1) * gap)) / 2f
+        val colStep = cellSize + gap
 
-        for (index in slots.indices) {
+        // 仅遍历屏幕可见视口范围内的列，针对 900+ 游戏带来极大幅度的帧率与流畅度提升
+        val firstVisibleCol = maxOf(0, ((-startX + sideArrowReserve - cellSize) / colStep).toInt())
+        val lastVisibleCol = minOf(totalCols - 1, (((w - startX) / colStep).toInt() + 1))
+
+        val startIdx = (firstVisibleCol * rows).coerceIn(0, slots.size)
+        val endIdx = ((lastVisibleCol + 1) * rows).coerceIn(0, slots.size)
+
+        for (index in startIdx until endIdx) {
             val col = index / rows
             val row = index % rows
-            val left = startX + col * (cellSize + gap)
-            val top = startY + row * (cellSize + gap)
+            val left = startX + col * colStep
+            val top = startY + row * colStep
             val right = left + cellSize
             val bottom = top + cellSize
 
@@ -1969,6 +1985,14 @@ class LowerScreenView @JvmOverloads constructor(
             val isMovingSource = (index == movingSourceIndex)
 
             drawSingleSlot(canvas, cellRect, item, isSelected, isMovingSource, rows)
+        }
+
+        if (!slotScreenRects.containsKey(selectedIndex) && selectedIndex in slots.indices) {
+            val col = selectedIndex / rows
+            val row = selectedIndex % rows
+            val left = startX + col * colStep
+            val top = startY + row * colStep
+            slotScreenRects[selectedIndex] = RectF(left, top, left + cellSize, top + cellSize)
         }
 
         val selRect = slotScreenRects[selectedIndex]
@@ -4689,9 +4713,9 @@ class LowerScreenView @JvmOverloads constructor(
         val contentH = (contentBottom - contentTop).coerceAtLeast(100f)
 
         val cols = 2
-        val rows = 5
+        val rows = 6
         val gapX = 14f
-        val gapY = 8f
+        val gapY = 6f
         val cardW = (contentW - gapX) / cols
         val cardH = (contentH - gapY * (rows - 1)) / rows
 
@@ -4725,8 +4749,10 @@ class LowerScreenView @JvmOverloads constructor(
             if (subscreenRetroFilterEnabled) "⚡ 3DS副屏复古滤镜: 开启" else "⚡ 3DS副屏复古滤镜: 关闭",
             if (subscreenCompanionEnabled) "🎮 单屏游戏副屏面板: 开启" else "🎮 单屏游戏副屏面板: 关闭",
             if (isSplitPreviewEnabled) "📺 单屏合并预览：开启" else "📺 真双屏独立显示：开启",
+            if (isVideoPreviewEnabled) "🎬 视频预览自动播放: 开启" else "🎬 视频预览自动播放: 关闭",
             "🏠 设为掌机默认主桌面",
-            "🔍 重新扫描全部游戏库"
+            "🔍 重新扫描全部游戏库",
+            "🌐 批量在线刮削缺失封面"
         )
         val descs = arrayOf(
             "已挂载 ${mediaLibraries.size} 个游戏目录 · 点击手动管理",
@@ -4737,8 +4763,10 @@ class LowerScreenView @JvmOverloads constructor(
             if (subscreenRetroFilterEnabled) "$subFilterTypeLabel ($subscreenRetroFilterOpacity%) · 点击配置" else "副屏原始拉伸 · 点击开启与配置",
             if (subscreenCompanionEnabled) "启动单屏游戏显示按键与攻略 · 点击关闭" else "启动单屏游戏时副屏原生黑屏 · 点击开启",
             if (isSplitPreviewEnabled) "单屏合并双屏画面 · 点击切换真双屏" else "上下屏独立分显 · 点击切换合并",
+            if (isVideoPreviewEnabled) "停顿750ms后淡入播放 · 点击关闭极速省电" else "仅展示封面与Logo · 彻底消除低配滑动卡顿",
             "系统设置设为开机默认主屏幕 · 点击前往",
-            "重新读取全部挂载目录 · 自动更新卡槽"
+            "重新读取全部挂载目录 · 自动更新卡槽",
+            "联网自动为无海报游戏刮削高清封面"
         )
         val accents = intArrayOf(
             Color.parseColor("#0284C7"),
@@ -4749,11 +4777,13 @@ class LowerScreenView @JvmOverloads constructor(
             if (subscreenRetroFilterEnabled) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
             if (subscreenCompanionEnabled) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
             Color.parseColor("#2B343D"),
+            if (isVideoPreviewEnabled) Color.parseColor("#10B981") else Color.parseColor("#64748B"),
             Color.parseColor("#E11D48"),
-            Color.parseColor("#0284C7")
+            Color.parseColor("#0284C7"),
+            Color.parseColor("#8B5CF6")
         )
 
-        for (idx in 0 until 10) {
+        for (idx in 0 until 12) {
             val col = idx % cols
             val row = idx / cols
             val cl = contentLeft + col * (cardW + gapX)
@@ -5705,7 +5735,7 @@ class LowerScreenView @JvmOverloads constructor(
                 }
             }
             SettingsSubPanel.ADVANCED_SETTINGS -> {
-                for (idx in 0 until 10) {
+                for (idx in 0 until 12) {
                     if (advancedCardRects[idx].contains(x, y)) {
                         subPanelCursorIndex = idx
                         triggerAdvancedCardAt(idx)
@@ -5985,11 +6015,22 @@ class LowerScreenView @JvmOverloads constructor(
             }
             8 -> {
                 SoundEffectEngine.playSelectApplet()
-                listener?.onSetDefaultHomeRequested()
+                isVideoPreviewEnabled = !isVideoPreviewEnabled
+                listener?.onToggleVideoPreviewRequested(isVideoPreviewEnabled)
+                invalidate()
             }
             9 -> {
                 SoundEffectEngine.playSelectApplet()
+                listener?.onSetDefaultHomeRequested()
+            }
+            10 -> {
+                SoundEffectEngine.playSelectApplet()
                 listener?.onManualRomScanRequested()
+                invalidate()
+            }
+            11 -> {
+                SoundEffectEngine.playSelectApplet()
+                listener?.onBatchScrapeCoversRequested()
                 invalidate()
             }
         }
@@ -6446,7 +6487,7 @@ class LowerScreenView @JvmOverloads constructor(
         }
         if (settingsSubPanel == SettingsSubPanel.ADVANCED_SETTINGS) {
                 val cols = 2
-                val rows = 5
+                val rows = 6
                 val col = subPanelCursorIndex % cols
                 val row = subPanelCursorIndex / cols
                 val newCol = (col + dxCols).coerceIn(0, cols - 1)

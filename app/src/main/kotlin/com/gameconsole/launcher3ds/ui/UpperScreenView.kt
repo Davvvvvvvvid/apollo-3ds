@@ -275,6 +275,22 @@ class UpperScreenView @JvmOverloads constructor(
         }
 
     /**
+     * 是否开启上屏实机演示与横幅视频自动播放预览。
+     * - 开启 (true)：停顿 750ms 后自动淡入播放实机演示或横幅视频；
+     * - 关闭 (false)：彻底停止并释放底层解码器，仅展示高清包装盒与 Logo，彻底消除低配掌机连续移动光标时的卡顿！
+     */
+    var isVideoPreviewEnabled: Boolean = true
+        set(value) {
+            field = value
+            if (!value) {
+                stopAndReleaseVideoPlayer()
+            } else {
+                syncVideoPlayback()
+            }
+            invalidate()
+        }
+
+    /**
      * 是否开启上屏预览视频原声（开启时：暂停 3DS 背景音乐，放出视频原声；关闭时：视频静音，恢复 3DS 背景音乐）
      */
     var isVideoAudioEnabled: Boolean = false
@@ -656,15 +672,23 @@ class UpperScreenView @JvmOverloads constructor(
 
     private fun syncVideoPlayback(immediate: Boolean = false) {
         videoDebounceHandler.removeCallbacks(videoDebounceRunnable)
+        if (!isVideoPreviewEnabled) {
+            stopAndReleaseVideoPlayer()
+            return
+        }
         if (immediate) {
             syncVideoPlaybackInternal()
         } else {
-            // 光标连续滑动时防抖400ms：移动时不加载不解码视频，保证60fps丝滑，停顿后才平滑淡入
-            videoDebounceHandler.postDelayed(videoDebounceRunnable, 400L)
+            // 光标连续滑动时防抖 750ms：快速移动时不加载不解码视频，保证 60fps 丝滑，完全停顿后才平滑淡入
+            videoDebounceHandler.postDelayed(videoDebounceRunnable, 750L)
         }
     }
 
     private fun syncVideoPlaybackInternal() {
+        if (!isVideoPreviewEnabled) {
+            stopAndReleaseVideoPlayer()
+            return
+        }
         val item = selectedSlot
         val targetVideo = if (isHostResumed && isStageApplet(activeApplet) && item != null && item.type != PlatformType.EMPTY) {
             when {

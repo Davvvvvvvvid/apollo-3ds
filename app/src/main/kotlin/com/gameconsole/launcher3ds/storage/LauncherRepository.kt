@@ -534,6 +534,7 @@ class LauncherRepository(private val context: Context) {
         private const val KEY_MANUAL_MOUNTED_DIRS = "manual_mounted_game_dirs_v2"
         private const val KEY_HIDE_GAMES_WITHOUT_COVER = "hide_games_without_cover_v1"
         private const val KEY_HIDE_GAMES_WITHOUT_ROM = "hide_games_without_rom_v1"
+        private const val KEY_VIDEO_PREVIEW_ENABLED = "key_video_preview_enabled_v1"
         private const val KEY_SUBSCREEN_COMPANION_ENABLED = "key_subscreen_companion_enabled"
         private const val KEY_SUBSCREEN_RETRO_FILTER_ENABLED = "subscreen_retro_filter_enabled"
         private const val KEY_SUBSCREEN_RETRO_FILTER_TYPE = "subscreen_retro_filter_type"
@@ -970,53 +971,61 @@ class LauncherRepository(private val context: Context) {
         val slots = loadRootSlots()
         var updated = 0
         for (item in slots) {
-            if (item.isDemo || item.type == PlatformType.EMPTY || item.romPath.isBlank()) continue
-            val romFile = File(item.romPath)
-            if (!romFile.exists()) continue
+            try {
+                if (item.isDemo || item.type == PlatformType.EMPTY || item.romPath.isBlank()) continue
+                val romFile = File(item.romPath)
+                if (!romFile.exists()) continue
 
-            val boxMissing = item.boxArtPath.isBlank() || !File(item.boxArtPath).exists()
-            val logoMissing = item.logoPath.isBlank() || !File(item.logoPath).exists()
-            val videoMissing = item.videoPath.isBlank() || !File(item.videoPath).exists()
-            val iconMissing = item.iconCachePath.isBlank() || !File(item.iconCachePath).exists()
+                val boxMissing = item.boxArtPath.isBlank() || !File(item.boxArtPath).exists()
+                val iconMissing = item.iconCachePath.isBlank() || !File(item.iconCachePath).exists()
 
-            if (boxMissing || logoMissing || videoMissing || iconMissing) {
-                val meta = RomHeaderParser.parseRomFile(context, romFile)
-                val mediaAssets = resolveMediaAssetsForRom(romFile, meta.title, meta.productCode)
+                // 如果已有封面和图标，跳过全量重匹配，避免海量游戏时卡顿
+                if (!boxMissing && !iconMissing) continue
 
-                var changed = false
-                if (boxMissing) {
-                    var newBox = mediaAssets.boxArtPath
-                    if (newBox.isBlank() && meta.iconCachePath.isNotBlank() && File(meta.iconCachePath).exists()) {
-                        newBox = meta.iconCachePath
+                val logoMissing = item.logoPath.isBlank() || !File(item.logoPath).exists()
+                val videoMissing = item.videoPath.isBlank() || !File(item.videoPath).exists()
+
+                if (boxMissing || logoMissing || videoMissing || iconMissing) {
+                    val meta = RomHeaderParser.parseRomFile(context, romFile)
+                    val mediaAssets = resolveMediaAssetsForRom(romFile, meta.title, meta.productCode)
+
+                    var changed = false
+                    if (boxMissing) {
+                        var newBox = mediaAssets.boxArtPath
+                        if (newBox.isBlank() && meta.iconCachePath.isNotBlank() && File(meta.iconCachePath).exists()) {
+                            newBox = meta.iconCachePath
+                        }
+                        if (newBox.isNotBlank()) {
+                            item.boxArtPath = newBox
+                            changed = true
+                        }
                     }
-                    if (newBox.isNotBlank()) {
-                        item.boxArtPath = newBox
+                    if (iconMissing && meta.iconCachePath.isNotBlank() && File(meta.iconCachePath).exists()) {
+                        item.iconCachePath = meta.iconCachePath
                         changed = true
                     }
+                    if (logoMissing && mediaAssets.logoPath.isNotBlank()) {
+                        item.logoPath = mediaAssets.logoPath
+                        changed = true
+                    }
+                    if (videoMissing && mediaAssets.videoPath.isNotBlank()) {
+                        item.videoPath = mediaAssets.videoPath
+                        changed = true
+                    }
+                    if (mediaAssets.bannerAnimationPath.isNotBlank() && item.bannerAnimationPath.isBlank()) {
+                        item.bannerAnimationPath = mediaAssets.bannerAnimationPath
+                        changed = true
+                    }
+                    if (mediaAssets.cgfxPath.isNotBlank() && item.cgfxPath.isBlank()) {
+                        item.cgfxPath = mediaAssets.cgfxPath
+                        changed = true
+                    }
+                    if (changed) {
+                        updated++
+                    }
                 }
-                if (iconMissing && meta.iconCachePath.isNotBlank() && File(meta.iconCachePath).exists()) {
-                    item.iconCachePath = meta.iconCachePath
-                    changed = true
-                }
-                if (logoMissing && mediaAssets.logoPath.isNotBlank()) {
-                    item.logoPath = mediaAssets.logoPath
-                    changed = true
-                }
-                if (videoMissing && mediaAssets.videoPath.isNotBlank()) {
-                    item.videoPath = mediaAssets.videoPath
-                    changed = true
-                }
-                if (mediaAssets.bannerAnimationPath.isNotBlank() && item.bannerAnimationPath.isBlank()) {
-                    item.bannerAnimationPath = mediaAssets.bannerAnimationPath
-                    changed = true
-                }
-                if (mediaAssets.cgfxPath.isNotBlank() && item.cgfxPath.isBlank()) {
-                    item.cgfxPath = mediaAssets.cgfxPath
-                    changed = true
-                }
-                if (changed) {
-                    updated++
-                }
+            } catch (t: Throwable) {
+                android.util.Log.e("LauncherRepository", "rematch cover error for ${item.romPath}", t)
             }
         }
         if (updated > 0) {
@@ -1396,6 +1405,10 @@ class LauncherRepository(private val context: Context) {
     var showUpperBoxart: Boolean
         get() = prefs.getBoolean(KEY_SHOW_UPPER_BOXART, true)
         set(value) = prefs.edit().putBoolean(KEY_SHOW_UPPER_BOXART, value).apply()
+
+    var isVideoPreviewEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VIDEO_PREVIEW_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_VIDEO_PREVIEW_ENABLED, value).apply()
 
     var showUpperLogo: Boolean
         get() = prefs.getBoolean(KEY_SHOW_UPPER_LOGO, true)
@@ -2654,6 +2667,13 @@ class LauncherRepository(private val context: Context) {
 
         var addedOrUpdatedCount = 0
 
+        // 目录文件列表局部缓存，彻底根治遍历数千款游戏时的 GC 抖动与 OOM 闪退
+        val dirFilesCache = mutableMapOf<File, List<File>>()
+        fun getDirFiles(dir: File?): List<File> {
+            if (dir == null || !dir.exists() || !dir.isDirectory) return emptyList()
+            return dirFilesCache.getOrPut(dir) { dir.listFiles()?.toList() ?: emptyList() }
+        }
+
         // 3. 挂载所有 media/<游戏名称> 游戏目录
         val totalMedia = gameMediaDirs.size
         var processedMedia = 0
@@ -2710,14 +2730,13 @@ class LauncherRepository(private val context: Context) {
 
             var bannerAnimPath = bannerFile?.absolutePath ?: ""
             var cgfxPath = cgfxFile?.absolutePath ?: ""
-            if (matchedRom != null) {
+            if (matchedRom != null && itemPlatform == "3DS") {
                 val romDir = matchedRom.parentFile
-                if (romDir != null && romDir.exists()) {
-                    val romCgfx = romDir.listFiles()?.firstOrNull { it.extension.equals("cgfx", true) && it.name.contains(cleanTitle, ignoreCase = true) }
-                    val romBanner = romDir.listFiles()?.firstOrNull { it.extension.equals("mp4", true) && (it.name.contains("横幅", ignoreCase = true) || it.name.contains("渲染", ignoreCase = true) || it.name.contains("banner", ignoreCase = true)) }
-                    if (romCgfx != null && cgfxPath.isBlank()) cgfxPath = romCgfx.absolutePath
-                    if (romBanner != null && bannerAnimPath.isBlank()) bannerAnimPath = romBanner.absolutePath
-                }
+                val filesInDir = getDirFiles(romDir)
+                val romCgfx = filesInDir.firstOrNull { it.extension.equals("cgfx", true) && it.name.contains(cleanTitle, ignoreCase = true) }
+                val romBanner = filesInDir.firstOrNull { it.extension.equals("mp4", true) && (it.name.contains("横幅", ignoreCase = true) || it.name.contains("渲染", ignoreCase = true) || it.name.contains("banner", ignoreCase = true)) }
+                if (romCgfx != null && cgfxPath.isBlank()) cgfxPath = romCgfx.absolutePath
+                if (romBanner != null && bannerAnimPath.isBlank()) bannerAnimPath = romBanner.absolutePath
             }
 
             val (publisher, primaryColor) = GameCategoryClassifier.inferPublisherAndColor(folderName)
@@ -2788,133 +2807,144 @@ class LauncherRepository(private val context: Context) {
         val remainingRoms = foundRomFiles.filter { !existingRomPaths.contains(it.absolutePath) }
         val totalRoms = remainingRoms.size
         var processedRoms = 0
+
+        // 建立媒体目录模糊匹配快速索引，彻底消除 900+ 游戏时的平方级线性字符串对比开销
+        val mediaByFuzzyKey = HashMap<String, ScannedMediaItem>()
+        for ((_, m) in gameMediaDirs) {
+            mediaByFuzzyKey[normalizeForFuzzy(m.folderName)] = m
+        }
+
         for (romFile in remainingRoms) {
             processedRoms++
-            if (processedRoms % 3 == 0 || processedRoms == totalRoms) {
-                val pct = 75 + ((processedRoms.toFloat() / totalRoms.coerceAtLeast(1)) * 18).toInt()
-                onProgress?.invoke(pct, "正在解析独立 ROM 文件 (${processedRoms}/$totalRoms)...", romFile.name)
+            if (processedRoms % 25 == 0 || processedRoms == totalRoms) {
+                val pct = 75 + ((processedRoms.toFloat() / totalRoms.coerceAtLeast(1)) * 23).toInt()
+                onProgress?.invoke(pct, "正在解析游戏图标与信息 (${processedRoms}/$totalRoms)...", romFile.name)
             }
-            val absPath = romFile.absolutePath
+            try {
+                val absPath = romFile.absolutePath
 
-            var emptySlotIdx = slots.indexOfFirst { it.type == PlatformType.EMPTY }
-            if (emptySlotIdx < 0) {
-                emptySlotIdx = slots.size
-                slots.add(GridSlotItem(id = "empty_$emptySlotIdx", slotIndex = emptySlotIdx, type = PlatformType.EMPTY))
-            }
-
-            val ext = romFile.extension.lowercase()
-            val itemPlatform = com.gameconsole.launcher3ds.model.PlatformCatalog.detectPlatform(romFile)
-                .ifBlank { com.gameconsole.launcher3ds.model.PlatformCatalog.detectPlatformFromPath(romFile.parentFile?.absolutePath ?: "") }
-                .ifBlank { "3DS" }
-            val platformType = if (itemPlatform == "NDS") PlatformType.NDS else PlatformType.N3DS
-            val meta = RomHeaderParser.parseRomFile(context, romFile)
-            val (cleanTitle, versionTag) = GameCategoryClassifier.splitGameFolderName(meta.title.ifBlank { romFile.nameWithoutExtension })
-            val (inferredPub, inferredColor) = GameCategoryClassifier.inferPublisherAndColor(cleanTitle)
-            val (matchedAssetIcon, matchedAssetPreview) = matchBuiltInArtwork(cleanTitle + " " + romFile.nameWithoutExtension, platformType)
-
-            // 检查同级是否有 media/<romName> 以及 3DS CGFX / 横幅渲染动效
-            val siblingMediaDir = File(romFile.parentFile, "media/${romFile.nameWithoutExtension}")
-            var boxPath = File(siblingMediaDir, "boxFront.png").takeIf { it.exists() }?.absolutePath
-                ?: File(siblingMediaDir, "boxfront.png").takeIf { it.exists() }?.absolutePath ?: ""
-            var logoPath = File(siblingMediaDir, "logo.png").takeIf { it.exists() }?.absolutePath ?: ""
-            var videoPath = File(siblingMediaDir, "video.mp4").takeIf { it.exists() }?.absolutePath ?: ""
-
-            // 增强1：同目录下的同名封面文件 (如 <ROM名>.png / <ROM名>.jpg)
-            val romParent = romFile.parentFile
-            if (boxPath.isBlank() && romParent != null) {
-                for (extImg in listOf("png", "jpg", "jpeg", "webp")) {
-                    val sidecar = File(romParent, "${romFile.nameWithoutExtension}.$extImg")
-                    if (sidecar.exists() && sidecar.length() > 0) {
-                        boxPath = sidecar.absolutePath
-                        break
-                    }
+                var emptySlotIdx = slots.indexOfFirst { it.type == PlatformType.EMPTY }
+                if (emptySlotIdx < 0) {
+                    emptySlotIdx = slots.size
+                    slots.add(GridSlotItem(id = "empty_$emptySlotIdx", slotIndex = emptySlotIdx, type = PlatformType.EMPTY))
                 }
-            }
 
-            // 增强2：检查同级 covers / boxart / named_boxarts 常用封面文件夹
-            if (boxPath.isBlank() && romParent != null) {
-                for (subName in listOf("covers", "boxart", "boxarts", "named_boxarts")) {
-                    val subDir = File(romParent, subName)
-                    if (subDir.exists() && subDir.isDirectory) {
-                        for (extImg in listOf("png", "jpg", "jpeg", "webp")) {
-                            val imgFile = File(subDir, "${romFile.nameWithoutExtension}.$extImg")
-                            if (imgFile.exists() && imgFile.length() > 0) {
-                                boxPath = imgFile.absolutePath
-                                break
-                            }
+                val ext = romFile.extension.lowercase()
+                val itemPlatform = com.gameconsole.launcher3ds.model.PlatformCatalog.detectPlatform(romFile)
+                    .ifBlank { com.gameconsole.launcher3ds.model.PlatformCatalog.detectPlatformFromPath(romFile.parentFile?.absolutePath ?: "") }
+                    .ifBlank { "3DS" }
+                val platformType = if (itemPlatform == "NDS") PlatformType.NDS else PlatformType.N3DS
+                val meta = RomHeaderParser.parseRomFile(context, romFile)
+                val (cleanTitle, versionTag) = GameCategoryClassifier.splitGameFolderName(meta.title.ifBlank { romFile.nameWithoutExtension })
+                val (inferredPub, inferredColor) = GameCategoryClassifier.inferPublisherAndColor(cleanTitle)
+                val (matchedAssetIcon, matchedAssetPreview) = matchBuiltInArtwork(cleanTitle + " " + romFile.nameWithoutExtension, platformType)
+
+                // 检查同级是否有 media/<romName> 以及 3DS CGFX / 横幅渲染动效
+                val siblingMediaDir = File(romFile.parentFile, "media/${romFile.nameWithoutExtension}")
+                var boxPath = File(siblingMediaDir, "boxFront.png").takeIf { it.exists() }?.absolutePath
+                    ?: File(siblingMediaDir, "boxfront.png").takeIf { it.exists() }?.absolutePath ?: ""
+                var logoPath = File(siblingMediaDir, "logo.png").takeIf { it.exists() }?.absolutePath ?: ""
+                var videoPath = File(siblingMediaDir, "video.mp4").takeIf { it.exists() }?.absolutePath ?: ""
+
+                // 增强1：同目录下的同名封面文件 (如 <ROM名>.png / <ROM名>.jpg)
+                val romParent = romFile.parentFile
+                if (boxPath.isBlank() && romParent != null) {
+                    for (extImg in listOf("png", "jpg", "jpeg", "webp")) {
+                        val sidecar = File(romParent, "${romFile.nameWithoutExtension}.$extImg")
+                        if (sidecar.exists() && sidecar.length() > 0) {
+                            boxPath = sidecar.absolutePath
+                            break
                         }
-                        if (boxPath.isNotBlank()) break
                     }
                 }
+
+                // 增强2：检查同级 covers / boxart / named_boxarts 常用封面文件夹
+                if (boxPath.isBlank() && romParent != null) {
+                    for (subName in listOf("covers", "boxart", "boxarts", "named_boxarts")) {
+                        val subDir = File(romParent, subName)
+                        if (subDir.exists() && subDir.isDirectory) {
+                            for (extImg in listOf("png", "jpg", "jpeg", "webp")) {
+                                val imgFile = File(subDir, "${romFile.nameWithoutExtension}.$extImg")
+                                if (imgFile.exists() && imgFile.length() > 0) {
+                                    boxPath = imgFile.absolutePath
+                                    break
+                                }
+                            }
+                            if (boxPath.isNotBlank()) break
+                        }
+                    }
+                }
+
+                // 增强3：智能模糊匹配天马/Pegasus媒体包目录 (针对用户下载的新汉化版ROM文件名轻微不同的情况)
+                if (boxPath.isBlank() && mediaByFuzzyKey.isNotEmpty()) {
+                    val cleanKey = cleanTitle.lowercase().replace(" ", "").replace("_", "").replace("-", "")
+                    val matchedMedia = mediaByFuzzyKey[cleanKey] ?: mediaByFuzzyKey.entries.firstOrNull { entry ->
+                        val k = entry.key
+                        k.contains(cleanKey) || cleanKey.contains(k)
+                    }?.value
+                    if (matchedMedia != null) {
+                        val mDir = matchedMedia.mediaDir
+                        val mFiles = getDirFiles(mDir)
+                        val mBox = mFiles.firstOrNull { it.name.lowercase() in listOf("boxfront.png", "boxfront.jpg", "cover.png", "box.png") && it.length() > 0 }
+                        if (mBox != null) {
+                            boxPath = mBox.absolutePath
+                        }
+                        val mLogo = mFiles.firstOrNull { it.name.lowercase() in listOf("logo.png", "wheel.png", "title.png") && it.length() > 0 }
+                        if (mLogo != null && logoPath.isBlank()) {
+                            logoPath = mLogo.absolutePath
+                        }
+                        val mVideo = mFiles.firstOrNull { it.name.lowercase() in listOf("video.mp4", "snap.mp4") && it.length() > 0 }
+                        if (mVideo != null && videoPath.isBlank()) {
+                            videoPath = mVideo.absolutePath
+                        }
+                    }
+                }
+
+                var bannerAnimPath = ""
+                var cgfxPath = ""
+                if (itemPlatform == "3DS") {
+                    val romDir = romFile.parentFile
+                    val filesInDir = getDirFiles(romDir)
+                    val romCgfx = filesInDir.firstOrNull { it.extension.equals("cgfx", true) && (it.name.contains(cleanTitle, ignoreCase = true) || it.name.contains("横幅", ignoreCase = true)) }
+                    val romBanner = filesInDir.firstOrNull { it.extension.equals("mp4", true) && (it.name.contains("横幅", ignoreCase = true) || it.name.contains("渲染", ignoreCase = true) || it.name.contains("banner", ignoreCase = true)) }
+                    bannerAnimPath = romBanner?.absolutePath ?: ""
+                    cgfxPath = romCgfx?.absolutePath ?: ""
+                }
+
+                val romMeta = findPegasusMetadata(romFile.nameWithoutExtension, cleanTitle, absPath, romFile.name)
+                val romDesc = romMeta?.description.orEmpty()
+                val romDev = romMeta?.developer.orEmpty()
+                val newItem = GridSlotItem(
+                    id = "rom_${UUID.randomUUID()}",
+                    slotIndex = emptySlotIdx,
+                    type = platformType,
+                    platformId = itemPlatform,
+                    title = cleanTitle,
+                    subtitle = meta.subtitle.ifBlank { "$versionTag  ·  ${com.gameconsole.launcher3ds.model.PlatformCatalog.getById(itemPlatform)?.name ?: inferredPub}" },
+                    publisher = if (romDev.isNotBlank()) romDev else if (meta.publisher == "Nintendo" && inferredPub != "Nintendo 3DS") inferredPub else meta.publisher,
+                    developer = romDev,
+                    description = romDesc,
+                    productCode = meta.productCode.ifBlank { "${itemPlatform}-ROM" },
+                    romPath = absPath,
+                    boxArtPath = boxPath,
+                    logoPath = logoPath,
+                    videoPath = videoPath,
+                    bannerAnimationPath = bannerAnimPath,
+                    cgfxPath = cgfxPath,
+                    iconCachePath = meta.iconCachePath,
+                    assetIconName = if (boxPath.isBlank()) matchedAssetIcon else "",
+                    assetPreviewName = if (videoPath.isBlank() && boxPath.isBlank()) matchedAssetPreview else "",
+                    primaryColor = inferredColor,
+                    secondaryColor = Color.WHITE,
+                    isDemo = false
+                )
+                newItem.categoryId = GameCategoryClassifier.classifyCategory(newItem).id
+                slots[emptySlotIdx] = newItem
+                existingRomPaths.add(absPath)
+                addedOrUpdatedCount++
+            } catch (t: Throwable) {
+                android.util.Log.e("LauncherRepository", "Failed to parse rom file: ${romFile.absolutePath}", t)
             }
-
-            // 增强3：智能模糊匹配天马/Pegasus媒体包目录 (针对用户下载的新汉化版ROM文件名轻微不同的情况)
-            if (boxPath.isBlank() && gameMediaDirs.isNotEmpty()) {
-                val cleanKey = cleanTitle.lowercase().replace(" ", "").replace("_", "").replace("-", "")
-                val matchedMedia = gameMediaDirs.values.firstOrNull { m ->
-                    val mClean = normalizeForFuzzy(m.folderName)
-                    mClean.contains(cleanKey) || cleanKey.contains(mClean)
-                }
-                if (matchedMedia != null) {
-                    val mDir = matchedMedia.mediaDir
-                    val mBox = listOf("boxFront.png", "boxfront.png", "boxFront.jpg", "cover.png", "box.png")
-                        .map { File(mDir, it) }
-                        .firstOrNull { it.exists() && it.length() > 0 }
-                    if (mBox != null) {
-                        boxPath = mBox.absolutePath
-                    }
-                    val mLogo = listOf("logo.png", "wheel.png", "title.png")
-                        .map { File(mDir, it) }
-                        .firstOrNull { it.exists() && it.length() > 0 }
-                    if (mLogo != null && logoPath.isBlank()) {
-                        logoPath = mLogo.absolutePath
-                    }
-                    val mVideo = listOf("video.mp4", "snap.mp4")
-                        .map { File(mDir, it) }
-                        .firstOrNull { it.exists() && it.length() > 0 }
-                    if (mVideo != null && videoPath.isBlank()) {
-                        videoPath = mVideo.absolutePath
-                    }
-                }
-            }
-
-            val romDir = romFile.parentFile
-            val romCgfx = romDir?.listFiles()?.firstOrNull { it.extension.equals("cgfx", true) && (it.name.contains(cleanTitle, ignoreCase = true) || it.name.contains("横幅", ignoreCase = true)) }
-            val romBanner = romDir?.listFiles()?.firstOrNull { it.extension.equals("mp4", true) && (it.name.contains("横幅", ignoreCase = true) || it.name.contains("渲染", ignoreCase = true) || it.name.contains("banner", ignoreCase = true)) }
-            val bannerAnimPath = romBanner?.absolutePath ?: ""
-            val cgfxPath = romCgfx?.absolutePath ?: ""
-
-            val romMeta = findPegasusMetadata(romFile.nameWithoutExtension, cleanTitle, absPath, romFile.name)
-            val romDesc = romMeta?.description.orEmpty()
-            val romDev = romMeta?.developer.orEmpty()
-            val newItem = GridSlotItem(
-                id = "rom_${UUID.randomUUID()}",
-                slotIndex = emptySlotIdx,
-                type = platformType,
-                platformId = itemPlatform,
-                title = cleanTitle,
-                subtitle = meta.subtitle.ifBlank { "$versionTag  ·  ${com.gameconsole.launcher3ds.model.PlatformCatalog.getById(itemPlatform)?.name ?: inferredPub}" },
-                publisher = if (romDev.isNotBlank()) romDev else if (meta.publisher == "Nintendo" && inferredPub != "Nintendo 3DS") inferredPub else meta.publisher,
-                developer = romDev,
-                description = romDesc,
-                productCode = meta.productCode.ifBlank { "${itemPlatform}-ROM" },
-                romPath = absPath,
-                boxArtPath = boxPath,
-                logoPath = logoPath,
-                videoPath = videoPath,
-                bannerAnimationPath = bannerAnimPath,
-                cgfxPath = cgfxPath,
-                iconCachePath = meta.iconCachePath,
-                assetIconName = if (boxPath.isBlank()) matchedAssetIcon else "",
-                assetPreviewName = if (videoPath.isBlank() && boxPath.isBlank()) matchedAssetPreview else "",
-                primaryColor = inferredColor,
-                secondaryColor = Color.WHITE,
-                isDemo = false
-            )
-            newItem.categoryId = GameCategoryClassifier.classifyCategory(newItem).id
-            slots[emptySlotIdx] = newItem
-            existingRomPaths.add(absPath)
-            addedOrUpdatedCount++
         }
 
         // 确保所有非空卡槽都有准确的分类 ID

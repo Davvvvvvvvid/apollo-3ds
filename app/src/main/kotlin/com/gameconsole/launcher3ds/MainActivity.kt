@@ -665,6 +665,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         upperScreenView.upperDisplayMode = repo.upperDisplayMode
         upperScreenView.showUpperBoxart = repo.showUpperBoxart
         upperScreenView.showUpperLogo = repo.showUpperLogo
+        upperScreenView.isVideoPreviewEnabled = repo.isVideoPreviewEnabled
         lowerScreenView.currentTheme = theme
         lowerScreenView.currentVideoFilter = filter
         lowerScreenView.gameDescriptionResolver = { slot -> repo.resolveGameDescription(slot) }
@@ -673,6 +674,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         lowerScreenView.upperDisplayMode = repo.upperDisplayMode
         lowerScreenView.showUpperBoxart = repo.showUpperBoxart
         lowerScreenView.showUpperLogo = repo.showUpperLogo
+        lowerScreenView.isVideoPreviewEnabled = repo.isVideoPreviewEnabled
         lowerScreenView.subscreenCompanionEnabled = repo.subscreenCompanionEnabled
         lowerScreenView.subscreenRetroFilterEnabled = repo.subscreenRetroFilterEnabled
         lowerScreenView.subscreenRetroFilterType = repo.subscreenRetroFilterType
@@ -1254,16 +1256,26 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             textSize = 12f
             setOnClickListener {
                 val path = dirInput.text.toString().trim()
-                val count = repo.scanRomDirectories(customDir = path.ifBlank { null }, removeDemoCards = false)
-                rootSlots = repo.loadRootSlots()
-                syncViewsWithState()
-                SoundEffectEngine.playSelectApplet()
-                Toast.makeText(ctx, "扫描导入完成！共发现/更新 $count 款游戏与媒体资源", Toast.LENGTH_LONG).show()
-                // 刷新弹窗内各平台的游戏计数
-                val newCounts = rootSlots.filter { !it.isDemo && it.type != PlatformType.EMPTY }.groupingBy { it.getEffectivePlatform() }.eachCount()
-                for (p in allPlatforms) {
-                    val c = newCounts[p.id] ?: 0
-                    checkBoxes[p.id]?.text = "${p.name}  [${c}款]"
+                isEnabled = false
+                text = "⏳ 扫描中..."
+                Toast.makeText(ctx, "开始扫描游戏目录，请稍候...", Toast.LENGTH_SHORT).show()
+                backgroundExecutor.execute {
+                    val count = repo.scanRomDirectories(customDir = path.ifBlank { null }, removeDemoCards = false)
+                    val freshSlots = repo.loadRootSlots()
+                    runOnUiThread {
+                        isEnabled = true
+                        text = "🔄 立即扫描导入"
+                        rootSlots = freshSlots
+                        syncViewsWithState()
+                        SoundEffectEngine.playSelectApplet()
+                        Toast.makeText(ctx, "扫描导入完成！共发现/更新 $count 款游戏与媒体资源", Toast.LENGTH_LONG).show()
+                        // 刷新弹窗内各平台的游戏计数
+                        val newCounts = rootSlots.filter { !it.isDemo && it.type != PlatformType.EMPTY }.groupingBy { it.getEffectivePlatform() }.eachCount()
+                        for (p in allPlatforms) {
+                            val c = newCounts[p.id] ?: 0
+                            checkBoxes[p.id]?.text = "${p.name}  [${c}款]"
+                        }
+                    }
                 }
             }
         }
@@ -2393,6 +2405,20 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         syncViewsWithState()
         val msg = if (newVal) "已开启：仅显示已下载真实ROM的游戏" else "已关闭：显示全部游戏（包含仅有媒体未下载ROM）"
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onToggleVideoPreviewRequested(enabled: Boolean) {
+        repo.isVideoPreviewEnabled = enabled
+        upperScreenView.isVideoPreviewEnabled = enabled
+        lowerScreenView.isVideoPreviewEnabled = enabled
+        SoundEffectEngine.playSelectApplet()
+        val msg = if (enabled) "🎬 上屏视频自动播放预览已开启 (停顿750ms后淡入)" else "🎬 上屏视频自动播放预览已关闭 (极速流畅省电模式)"
+        Toast.makeText(dialogContext(), msg, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onBatchScrapeCoversRequested() {
+        SoundEffectEngine.playSelectApplet()
+        batchScrapeMissingCovers()
     }
 
     private fun showFolderPickerDialog() {
@@ -3656,23 +3682,43 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val scanAllBtn = createStyledButton(ctx, "🔍 立即扫描并挂载 3DS media 资源包与 ROM", Color.parseColor("#18B858"), Color.WHITE).apply {
             setOnClickListener {
                 val customPath = pathInput.text.toString().trim()
-                val count = repo.scanRomDirectories(customDir = customPath.ifBlank { null }, removeDemoCards = false)
-                rootSlots = repo.loadRootSlots()
-                syncViewsWithState()
-                SoundEffectEngine.playSelectApplet()
-                Toast.makeText(ctx, "扫描挂载完成！新增/更新 $count 款 3DS 游戏与媒体资源", Toast.LENGTH_LONG).show()
-                activeAppletDialog?.dismiss()
+                isEnabled = false
+                text = "⏳ 扫描中..."
+                Toast.makeText(ctx, "开始扫描并挂载，请稍候...", Toast.LENGTH_SHORT).show()
+                backgroundExecutor.execute {
+                    val count = repo.scanRomDirectories(customDir = customPath.ifBlank { null }, removeDemoCards = false)
+                    val freshSlots = repo.loadRootSlots()
+                    runOnUiThread {
+                        isEnabled = true
+                        text = "🔍 立即扫描并挂载 3DS media 资源包与 ROM"
+                        rootSlots = freshSlots
+                        syncViewsWithState()
+                        SoundEffectEngine.playSelectApplet()
+                        Toast.makeText(ctx, "扫描挂载完成！新增/更新 $count 款 3DS 游戏与媒体资源", Toast.LENGTH_LONG).show()
+                        activeAppletDialog?.dismiss()
+                    }
+                }
             }
         }
         val cleanDemoScanBtn = createStyledButton(ctx, "🧹 清除内置演示卡带并重新挂载真实 3DS media 库", Color.parseColor("#E60012"), Color.WHITE).apply {
             setOnClickListener {
                 val customPath = pathInput.text.toString().trim()
-                val count = repo.scanRomDirectories(customDir = customPath.ifBlank { null }, removeDemoCards = true)
-                rootSlots = repo.loadRootSlots()
-                syncViewsWithState()
-                SoundEffectEngine.playSelectApplet()
-                Toast.makeText(ctx, "已清除演示卡带并挂载 $count 款真实 3DS 游戏！", Toast.LENGTH_LONG).show()
-                activeAppletDialog?.dismiss()
+                isEnabled = false
+                text = "⏳ 清理并挂载中..."
+                Toast.makeText(ctx, "正在清理并重新挂载，请稍候...", Toast.LENGTH_SHORT).show()
+                backgroundExecutor.execute {
+                    val count = repo.scanRomDirectories(customDir = customPath.ifBlank { null }, removeDemoCards = true)
+                    val freshSlots = repo.loadRootSlots()
+                    runOnUiThread {
+                        isEnabled = true
+                        text = "🧹 清除内置演示卡带并重新挂载真实 3DS media 库"
+                        rootSlots = freshSlots
+                        syncViewsWithState()
+                        SoundEffectEngine.playSelectApplet()
+                        Toast.makeText(ctx, "已清除演示卡带并挂载 $count 款真实 3DS 游戏！", Toast.LENGTH_LONG).show()
+                        activeAppletDialog?.dismiss()
+                    }
+                }
             }
         }
         val addAndroidBtn = createStyledButton(ctx, "📱 从掌机已安装的安卓应用中选择添加", Color.parseColor("#00A8E8"), Color.WHITE).apply {
