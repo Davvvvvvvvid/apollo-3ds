@@ -1351,6 +1351,9 @@ class LauncherRepository(private val context: Context) {
         if (autoDetected.isNotBlank()) {
             if (p == "3DS") default3dsEmulatorPkg = autoDetected
             if (p == "NDS") defaultNdsEmulatorPkg = autoDetected
+            if (!customMap.containsKey(p) || !EmulatorLauncher.isPackageInstalled(context.packageManager, customMap[p].orEmpty())) {
+                setPlatformEmulator(p, autoDetected)
+            }
             return autoDetected
         }
         return com.gameconsole.launcher3ds.model.PlatformCatalog.getById(p)?.defaultEmulatorPkg ?: ""

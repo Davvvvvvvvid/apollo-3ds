@@ -937,7 +937,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
 
                     dismissSecondaryPresentation()
 
-                    EmulatorLauncher.launchSlotItem(
+                    val launched = EmulatorLauncher.launchSlotItem(
                         context = this,
                         item = slot,
                         default3dsEmulatorPkg = repo.default3dsEmulatorPkg,
@@ -945,6 +945,9 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
                         platformEmulatorPkg = platformEmu,
                         subscreenCompanionEnabled = repo.subscreenCompanionEnabled
                     )
+                    if (!launched && !slot.isDemo && slot.romPath.isNotBlank()) {
+                        promptSelectEmulatorForUnlinkedGame(slot)
+                    }
                 }
             }
         }
@@ -1304,6 +1307,36 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             e.printStackTrace()
             Toast.makeText(this, "打开游戏库管理失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun promptSelectEmulatorForUnlinkedGame(slot: GridSlotItem) {
+        val ctx = dialogContext()
+        val plat = slot.getEffectivePlatform()
+        val platDef = com.gameconsole.launcher3ds.model.PlatformCatalog.getById(plat)
+        val platName = platDef?.name ?: plat
+        AlertDialog.Builder(ctx)
+            .setTitle("🎮 需关联 $platName 模拟器")
+            .setMessage("当前未自动检测到适用于「${slot.title}」的模拟器。\n\n若您已安装对应模拟器（如 Eden、Yuzu 等），可点击下方按钮直接从设备应用列表中选取并绑定。")
+            .setPositiveButton("🔍 从已安装应用选取") { _, _ ->
+                if (platDef != null) {
+                    showPickEmulatorForPlatformDialog(platDef) { chosenPkg ->
+                        repo.setPlatformEmulator(plat, chosenPkg)
+                        slot.preferredEmulatorPkg = chosenPkg
+                        persistSlotUpdate(slot)
+                        Toast.makeText(ctx, "已绑定模拟器：$chosenPkg，正在启动游戏...", Toast.LENGTH_SHORT).show()
+                        EmulatorLauncher.launchSlotItem(
+                            context = this,
+                            item = slot,
+                            default3dsEmulatorPkg = repo.default3dsEmulatorPkg,
+                            defaultNdsEmulatorPkg = repo.defaultNdsEmulatorPkg,
+                            platformEmulatorPkg = chosenPkg,
+                            subscreenCompanionEnabled = repo.subscreenCompanionEnabled
+                        )
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun showPickEmulatorForPlatformDialog(plat: com.gameconsole.launcher3ds.model.PlatformDefinition, onPicked: (String) -> Unit) {

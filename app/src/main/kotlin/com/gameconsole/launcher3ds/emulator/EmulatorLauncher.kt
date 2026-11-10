@@ -187,7 +187,11 @@ object EmulatorLauncher {
             pm.getPackageInfo(pkg, 0)
             true
         } catch (_: Exception) {
-            false
+            try {
+                pm.getLaunchIntentForPackage(pkg) != null
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 
@@ -220,21 +224,28 @@ object EmulatorLauncher {
             return defaultPkg
         }
 
-        // 动态扫描已安装应用：支持第三方修改版/社区分发版
+        // 动态扫描已安装应用：支持 Eden (包括包名/应用名/原神伪装版) 及其他社区分支
         if (platform.equals("SWITCH", ignoreCase = true)) {
             try {
-                val installed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(0)).map { it.packageName }
-                } else {
-                    @Suppress("DEPRECATION")
-                    pm.getInstalledPackages(0).map { it.packageName }
+                val apps = pm.getInstalledApplications(0)
+                // 1. 优先根据 Eden 关键词（包名或应用名称）精准匹配
+                for (app in apps) {
+                    val pkg = app.packageName.lowercase()
+                    val label = try { pm.getApplicationLabel(app).toString().lowercase() } catch (_: Exception) { "" }
+                    if (pkg.contains("eden") || label.contains("eden") || label.contains("伊甸园")) {
+                        return app.packageName
+                    }
                 }
-                val dynamicEden = installed.firstOrNull { it.contains("eden", ignoreCase = true) }
-                if (!dynamicEden.isNullOrBlank()) return dynamicEden
-                val dynamicYuzu = installed.firstOrNull { it.contains("yuzu", ignoreCase = true) }
-                if (!dynamicYuzu.isNullOrBlank()) return dynamicYuzu
-                val dynamicSudachi = installed.firstOrNull { it.contains("sudachi", ignoreCase = true) }
-                if (!dynamicSudachi.isNullOrBlank()) return dynamicSudachi
+                // 2. 匹配其他 Switch 模拟器关键词（Yuzu / Sudachi / Suyu / Citron / Skyline 等）
+                for (app in apps) {
+                    val pkg = app.packageName.lowercase()
+                    val label = try { pm.getApplicationLabel(app).toString().lowercase() } catch (_: Exception) { "" }
+                    if (pkg.contains("yuzu") || pkg.contains("sudachi") || pkg.contains("suyu") || pkg.contains("citron") || pkg.contains("skyline") ||
+                        label.contains("yuzu") || label.contains("sudachi") || label.contains("suyu") || label.contains("citron") || label.contains("skyline") ||
+                        label.contains("柚子") || label.contains("switch")) {
+                        return app.packageName
+                    }
+                }
             } catch (_: Exception) {}
         }
 
