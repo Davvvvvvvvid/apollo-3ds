@@ -659,7 +659,8 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         upperScreenView.updateSelectedSlot(
             newSlot = selectedSlot,
             keepPreviewPlaying = isVideoAudioMode,
-            keepAudioEnabled = isVideoAudioMode
+            keepAudioEnabled = isVideoAudioMode,
+            immediateVideo = true
         )
         if (selectedSlot?.type == PlatformType.FOLDER) {
             upperScreenView.folderChildrenCount = folderItems.count { it.parentFolderId == selectedSlot.id }
@@ -739,7 +740,8 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         upperScreenView.updateSelectedSlot(
             newSlot = selectedSlot,
             keepPreviewPlaying = isVideoAudioMode,
-            keepAudioEnabled = isVideoAudioMode
+            keepAudioEnabled = isVideoAudioMode,
+            immediateVideo = true
         )
         upperScreenView.friendProfile = repo.loadFriendProfile()
         upperScreenView.playCoins = repo.playCoins

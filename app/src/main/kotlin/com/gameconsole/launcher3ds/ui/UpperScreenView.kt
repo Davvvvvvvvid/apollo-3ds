@@ -687,8 +687,8 @@ class UpperScreenView @JvmOverloads constructor(
         if (immediate) {
             syncVideoPlaybackInternal()
         } else {
-            // 光标连续滑动时防抖 750ms：快速移动时不加载不解码视频，保证 60fps 丝滑，完全停顿后才平滑淡入
-            videoDebounceHandler.postDelayed(videoDebounceRunnable, 750L)
+            // 光标滑动防抖：快速滑动时避免频繁创建解码器，一旦停稳（80ms）立即启动硬件解码准备
+            videoDebounceHandler.postDelayed(videoDebounceRunnable, 80L)
         }
     }
 
@@ -2343,54 +2343,66 @@ class UpperScreenView @JvmOverloads constructor(
             clipPath.addRoundRect(screenRect, 14f, 14f, Path.Direction.CW)
             canvas.clipPath(clipPath)
 
-            // 当视频尚未首帧就绪或无视频时，绘制静态预览图或艺术封面底幕 + 高清透明 Logo
-            bitmapPaint.colorFilter = activeVideoColorFilter
-            if (previewBmp != null) {
-                val norm = item.getEffectivePlatform().uppercase().trim()
-                val is3dsOrNds = (item.type == PlatformType.N3DS || item.type == PlatformType.NDS ||
-                        norm == "3DS" || norm == "N3DS" || norm == "NDS" || norm == "DS")
-                if (is3dsOrNds && previewBmp.height > previewBmp.width) {
-                    // 同样针对 3DS / NDS 竖版截图：只截取并显示上半部分（上屏画面）
-                    val srcRect = Rect(0, 0, previewBmp.width, previewBmp.height / 2)
-                    canvas.drawBitmap(previewBmp, srcRect, screenRect, bitmapPaint)
-                } else {
-                    canvas.drawBitmap(previewBmp, null, screenRect, bitmapPaint)
-                }
-            } else {
-                paint.shader = LinearGradient(
-                    screenRect.left, screenRect.top, screenRect.right, screenRect.bottom,
-                    blendColor(item.primaryColor, Color.BLACK, 0.45f),
-                    blendColor(item.secondaryColor, Color.BLACK, 0.72f),
-                    Shader.TileMode.CLAMP
-                )
-                canvas.drawRect(screenRect, paint)
-                paint.shader = null
+            // 当视频尚未首帧就绪或无视频时，判断是否具备视频预览
+            val hasVideoPreview = (item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank()) &&
+                    isVideoPreviewEnabled &&
+                    upperDisplayMode != UpperDisplayMode.LOGO_ONLY &&
+                    upperDisplayMode != UpperDisplayMode.LOGO_TITLE
 
-                if (boxBmp != null) {
-                    bitmapPaint.alpha = 85
-                    canvas.drawBitmap(boxBmp, null, screenRect, bitmapPaint)
-                    bitmapPaint.alpha = 255
-                }
-                if (logoBmp != null) {
-                    val maxLW = screenRect.width() * 0.78f
-                    val maxLH = screenRect.height() * 0.62f
-                    val aspect = logoBmp.width.toFloat().coerceAtLeast(1f) / logoBmp.height.toFloat().coerceAtLeast(1f)
-                    var lW = maxLW
-                    var lH = lW / aspect
-                    if (lH > maxLH) {
-                        lH = maxLH
-                        lW = lH * aspect
+            if (hasVideoPreview) {
+                // 有视频预览：电视屏幕保持纯净深黑屏幕底色，静待视频首帧秒出，绝不闪现2D封面
+                paint.color = Color.BLACK
+                canvas.drawRect(screenRect, paint)
+            } else {
+                // 仅在游戏完全没有视频预览时，才回退显示静态艺术截图或封面+Logo
+                bitmapPaint.colorFilter = activeVideoColorFilter
+                if (previewBmp != null) {
+                    val norm = item.getEffectivePlatform().uppercase().trim()
+                    val is3dsOrNds = (item.type == PlatformType.N3DS || item.type == PlatformType.NDS ||
+                            norm == "3DS" || norm == "N3DS" || norm == "NDS" || norm == "DS")
+                    if (is3dsOrNds && previewBmp.height > previewBmp.width) {
+                        // 同样针对 3DS / NDS 竖版截图：只截取并显示上半部分（上屏画面）
+                        val srcRect = Rect(0, 0, previewBmp.width, previewBmp.height / 2)
+                        canvas.drawBitmap(previewBmp, srcRect, screenRect, bitmapPaint)
+                    } else {
+                        canvas.drawBitmap(previewBmp, null, screenRect, bitmapPaint)
                     }
-                    val lRect = RectF(
-                        screenRect.centerX() - lW / 2f,
-                        screenRect.centerY() - lH / 2f,
-                        screenRect.centerX() + lW / 2f,
-                        screenRect.centerY() + lH / 2f
+                } else {
+                    paint.shader = LinearGradient(
+                        screenRect.left, screenRect.top, screenRect.right, screenRect.bottom,
+                        blendColor(item.primaryColor, Color.BLACK, 0.45f),
+                        blendColor(item.secondaryColor, Color.BLACK, 0.72f),
+                        Shader.TileMode.CLAMP
                     )
-                    canvas.drawBitmap(logoBmp, null, lRect, bitmapPaint)
+                    canvas.drawRect(screenRect, paint)
+                    paint.shader = null
+
+                    if (boxBmp != null) {
+                        bitmapPaint.alpha = 85
+                        canvas.drawBitmap(boxBmp, null, screenRect, bitmapPaint)
+                        bitmapPaint.alpha = 255
+                    }
+                    if (logoBmp != null) {
+                        val maxLW = screenRect.width() * 0.78f
+                        val maxLH = screenRect.height() * 0.62f
+                        val aspect = logoBmp.width.toFloat().coerceAtLeast(1f) / logoBmp.height.toFloat().coerceAtLeast(1f)
+                        var lW = maxLW
+                        var lH = lW / aspect
+                        if (lH > maxLH) {
+                            lH = maxLH
+                            lW = lH * aspect
+                        }
+                        val lRect = RectF(
+                            screenRect.centerX() - lW / 2f,
+                            screenRect.centerY() - lH / 2f,
+                            screenRect.centerX() + lW / 2f,
+                            screenRect.centerY() + lH / 2f
+                        )
+                        canvas.drawBitmap(logoBmp, null, lRect, bitmapPaint)
+                    }
                 }
+                bitmapPaint.colorFilter = null
             }
-            bitmapPaint.colorFilter = null
 
             // 顶部极轻的玻璃光泽（不遮挡任何画面内容）
             paint.shader = LinearGradient(
