@@ -40,6 +40,15 @@
         <package android:name="com.dsemu.drastic" />
         <package android:name="me.magnum.melonds" />
         <package android:name="me.magnum.melonds.nightly" />
+        <package android:name="dev.eden.eden_emulator" />
+        <package android:name="dev.eden.eden_nightly" />
+        <package android:name="dev.edenex.eden_emulator" />
+        <package android:name="org.yuzu.yuzu_emu" />
+        <package android:name="org.yuzu.yuzu_emu.ea" />
+        <package android:name="org.sudachi.sudachi_emu" />
+        <package android:name="org.suyu.suyuemu" />
+        <package android:name="org.citron.citron" />
+        <package android:name="skyline.emu" />
         <package android:name="com.retroarch" />
         <package android:name="com.retroarch.aarch64" />
         <package android:name="com.gameconsole.apollo" />

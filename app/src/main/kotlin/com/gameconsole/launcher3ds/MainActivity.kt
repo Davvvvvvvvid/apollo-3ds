@@ -1193,7 +1193,15 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             val emuBtn = Button(ctx).apply {
                 val curPkg = repo.getPlatformEmulator(plat.id)
                 val appLabel = queryAppLabel(curPkg).ifBlank {
-                    if (plat.id == "3DS") "Citra/Azahar" else if (plat.id == "NDS") "DraStic/melonDS" else "RetroArch"
+                    when (plat.id.uppercase()) {
+                        "3DS" -> "Citra/Azahar"
+                        "NDS" -> "DraStic/melonDS"
+                        "SWITCH" -> "Eden/Yuzu"
+                        "PSP" -> "PPSSPP"
+                        "PS1" -> "DuckStation"
+                        "PS2" -> "AetherSX2"
+                        else -> "RetroArch"
+                    }
                 }
                 text = "🎮 $appLabel"
                 textSize = 11.5f
@@ -1304,11 +1312,13 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val emuApps = allApps.filter { app ->
             val pkg = app.packageName.lowercase()
             val label = app.title.lowercase()
-            pkg.contains("citra") || pkg.contains("azahar") || pkg.contains("lime") || pkg.contains("mandarine") ||
+            pkg.contains("eden") || pkg.contains("yuzu") || pkg.contains("sudachi") || pkg.contains("suyu") || pkg.contains("citron") ||
+                pkg.contains("citra") || pkg.contains("azahar") || pkg.contains("lime") || pkg.contains("mandarine") ||
                 pkg.contains("drastic") || pkg.contains("melonds") || pkg.contains("retroarch") ||
                 pkg.contains("ppsspp") || pkg.contains("duckstation") || pkg.contains("flycast") ||
                 pkg.contains("redream") || pkg.contains("yabasanshiro") || pkg.contains("snes") ||
                 pkg.contains("emu") || pkg.contains("arcade") || label.contains("模拟器") ||
+                label.contains("eden") || label.contains("yuzu") || label.contains("sudachi") ||
                 label.contains("citra") || label.contains("drastic") || label.contains("retroarch") ||
                 label.contains("ppsspp")
         }
@@ -3972,7 +3982,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
 
     private fun showGameManualAndConfigDialog(slot: GridSlotItem) {
         val ctx = dialogContext()
-        val emulators = EmulatorLauncher.getAvailableEmulators(this, slot.type)
+        val emulators = EmulatorLauncher.getAvailableEmulatorsForPlatform(this, slot.getEffectivePlatform())
         val infoBuilder = StringBuilder().apply {
             append("• 标题：${slot.title}\n")
             append("• 平台：${slot.type.name} (${slot.productCode.ifBlank { "标准卡带" }})\n")

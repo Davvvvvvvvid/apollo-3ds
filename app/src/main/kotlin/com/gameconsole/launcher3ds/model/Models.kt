@@ -273,7 +273,7 @@ object PlatformCatalog {
         PlatformDefinition("SFC", "SFC / 超任 (SNES)", "SFC", "#2563EB", "com.retroarch.aarch64", isDefaultEnabled = false),
         PlatformDefinition("NGC", "任天堂 NGC (GameCube)", "NGC", "#6366F1", "org.dolphinemu.dolphinemu", isDefaultEnabled = false),
         PlatformDefinition("WII", "任天堂 Wii", "WII", "#0EA5E9", "org.dolphinemu.dolphinemu", isDefaultEnabled = false),
-        PlatformDefinition("SWITCH", "Nintendo Switch (NS)", "Switch", "#E11D48", "org.yuzu.yuzu_emu", isDefaultEnabled = false),
+        PlatformDefinition("SWITCH", "Nintendo Switch (NS)", "Switch", "#E11D48", "dev.eden.eden_emulator", isDefaultEnabled = false),
         PlatformDefinition("PSP", "索尼 PSP", "PSP", "#0284C7", "org.ppsspp.ppsspp", isDefaultEnabled = false),
         PlatformDefinition("PS1", "索尼 PS1 (PlayStation)", "PS1", "#475569", "com.github.stenzek.duckstation", isDefaultEnabled = false),
         PlatformDefinition("PS2", "索尼 PS2 (PlayStation 2)", "PS2", "#1D4ED8", "xyz.aethersx2.android", isDefaultEnabled = false),

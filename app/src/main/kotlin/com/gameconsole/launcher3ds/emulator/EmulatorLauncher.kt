@@ -94,16 +94,63 @@ object EmulatorLauncher {
         EmulatorCandidate("Dolphin Handheld", "org.dolphinemu.handheld", PlatformType.N3DS, "org.dolphinemu.handheld.ui.main.MainActivity")
     )
 
-    fun getAvailableEmulators(context: Context, platform: PlatformType): List<EmulatorCandidate> {
+    val KNOWN_SWITCH_EMULATORS = listOf(
+        EmulatorCandidate("Eden 模拟器 (推荐)", "dev.eden.eden_emulator", PlatformType.N3DS, "org.yuzu.yuzu_emu.activities.EmulationActivity"),
+        EmulatorCandidate("Eden Nightly (每日版)", "dev.eden.eden_nightly", PlatformType.N3DS, "org.yuzu.yuzu_emu.activities.EmulationActivity"),
+        EmulatorCandidate("Eden Extended (增强版)", "dev.edenex.eden_emulator", PlatformType.N3DS, "org.yuzu.yuzu_emu.activities.EmulationActivity"),
+        EmulatorCandidate("Yuzu 官方正式版", "org.yuzu.yuzu_emu", PlatformType.N3DS, "org.yuzu.yuzu_emu.activities.EmulationActivity"),
+        EmulatorCandidate("Yuzu 抢先体验版 (EA)", "org.yuzu.yuzu_emu.ea", PlatformType.N3DS, "org.yuzu.yuzu_emu.activities.EmulationActivity"),
+        EmulatorCandidate("Sudachi (分支版)", "org.sudachi.sudachi_emu", PlatformType.N3DS, "org.yuzu.yuzu_emu.activities.EmulationActivity"),
+        EmulatorCandidate("Suyu (分支版)", "org.suyu.suyuemu", PlatformType.N3DS, "org.yuzu.yuzu_emu.activities.EmulationActivity"),
+        EmulatorCandidate("Citron (分支版)", "org.citron.citron", PlatformType.N3DS, "org.yuzu.yuzu_emu.activities.EmulationActivity"),
+        EmulatorCandidate("Skyline", "skyline.emu", PlatformType.N3DS, ""),
+        EmulatorCandidate("Skyline Purple", "skyline.purple.emu", PlatformType.N3DS, "")
+    )
+
+    fun getAvailableEmulatorsForPlatform(context: Context, platformStr: String): List<EmulatorCandidate> {
         val pm = context.packageManager
-        val sourceList = if (platform == PlatformType.NDS) KNOWN_NDS_EMULATORS else KNOWN_3DS_EMULATORS
+        val pUpper = platformStr.uppercase()
+        val sourceList: List<EmulatorCandidate> = when (pUpper) {
+            "SWITCH" -> KNOWN_SWITCH_EMULATORS
+            "NDS" -> KNOWN_NDS_EMULATORS
+            "GBA" -> KNOWN_GBA_EMULATORS
+            "PSP" -> KNOWN_PSP_EMULATORS
+            "PS2" -> KNOWN_PS2_EMULATORS
+            "PS1" -> KNOWN_PS1_EMULATORS
+            "N64" -> KNOWN_N64_EMULATORS
+            "NGC", "WII" -> KNOWN_DOLPHIN_EMULATORS
+            else -> KNOWN_3DS_EMULATORS
+        }
         val knownResult = sourceList.map { candidate ->
             val installed = isPackageInstalled(pm, candidate.packageName)
             candidate.copy(isInstalled = installed)
         }.toMutableList()
 
-        if (platform == PlatformType.N3DS) {
-            // 动态扫描：自动发现设备上已安装但包名特殊的任意 Citra / 3DS 模拟器变体（如各种汉化定制版、优化版）
+        if (pUpper == "SWITCH") {
+            try {
+                val installedApps = pm.getInstalledApplications(0)
+                for (app in installedApps) {
+                    val pkg = app.packageName.lowercase()
+                    val label = try { pm.getApplicationLabel(app).toString() } catch (_: Exception) { "" }
+                    val labelLower = label.lowercase()
+                    if ((pkg.contains("eden") || pkg.contains("yuzu") || pkg.contains("sudachi") || pkg.contains("suyu") || pkg.contains("citron") ||
+                         labelLower.contains("eden") || labelLower.contains("yuzu") || labelLower.contains("sudachi") || labelLower.contains("switch")) &&
+                        knownResult.none { it.packageName.equals(app.packageName, ignoreCase = true) } &&
+                        !pkg.contains("com.gameconsole.launcher3ds")
+                    ) {
+                        knownResult.add(
+                            EmulatorCandidate(
+                                name = if (label.isNotBlank()) "$label [自定义]" else app.packageName,
+                                packageName = app.packageName,
+                                platform = PlatformType.N3DS,
+                                knownActivity = "",
+                                isInstalled = true
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+        } else if (pUpper == "3DS") {
             try {
                 val installedApps = pm.getInstalledApplications(0)
                 for (app in installedApps) {
@@ -130,6 +177,10 @@ object EmulatorLauncher {
         return knownResult
     }
 
+    fun getAvailableEmulators(context: Context, platform: PlatformType): List<EmulatorCandidate> {
+        return getAvailableEmulatorsForPlatform(context, if (platform == PlatformType.NDS) "NDS" else "3DS")
+    }
+
     fun isPackageInstalled(pm: PackageManager, pkg: String): Boolean {
         if (pkg.isBlank()) return false
         return try {
@@ -152,7 +203,7 @@ object EmulatorLauncher {
             "PS1" -> KNOWN_PS1_EMULATORS.map { it.packageName }
             "N64" -> KNOWN_N64_EMULATORS.map { it.packageName }
             "NGC", "WII" -> KNOWN_DOLPHIN_EMULATORS.map { it.packageName }
-            "SWITCH" -> listOf("org.yuzu.yuzu_emu", "org.sudachi.sudachi_emu", "skyline.emu")
+            "SWITCH" -> KNOWN_SWITCH_EMULATORS.map { it.packageName }
             "FC", "NES" -> listOf("com.retroarch.aarch64", "com.retroarch", "com.nostalgiaemulators.nesfull", "com.nostalgiaemulators.neslite", "com.swordfish.lemuroid")
             "SFC", "SNES" -> listOf("com.retroarch.aarch64", "com.retroarch", "com.explusalpha.Snes9xPlus", "com.swordfish.lemuroid")
             "MD", "GENESIS" -> listOf("com.retroarch.aarch64", "com.retroarch", "com.explusalpha.MdEmu", "com.swordfish.lemuroid")
@@ -167,6 +218,24 @@ object EmulatorLauncher {
         val defaultPkg = com.gameconsole.launcher3ds.model.PlatformCatalog.getById(platform)?.defaultEmulatorPkg.orEmpty()
         if (defaultPkg.isNotBlank() && isPackageInstalled(pm, defaultPkg)) {
             return defaultPkg
+        }
+
+        // 动态扫描已安装应用：支持第三方修改版/社区分发版
+        if (platform.equals("SWITCH", ignoreCase = true)) {
+            try {
+                val installed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(0)).map { it.packageName }
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getInstalledPackages(0).map { it.packageName }
+                }
+                val dynamicEden = installed.firstOrNull { it.contains("eden", ignoreCase = true) }
+                if (!dynamicEden.isNullOrBlank()) return dynamicEden
+                val dynamicYuzu = installed.firstOrNull { it.contains("yuzu", ignoreCase = true) }
+                if (!dynamicYuzu.isNullOrBlank()) return dynamicYuzu
+                val dynamicSudachi = installed.firstOrNull { it.contains("sudachi", ignoreCase = true) }
+                if (!dynamicSudachi.isNullOrBlank()) return dynamicSudachi
+            } catch (_: Exception) {}
         }
 
         // 动态扫描已安装应用：防止某些第三方修改版/汉化版 DraStic 或 melonDS 使用了不同包名
@@ -337,7 +406,7 @@ object EmulatorLauncher {
                 "3DS" -> "Citra、Lime3DS 或 Azahar"
                 "N64" -> "Mupen64Plus FZ"
                 "NGC", "WII" -> "Dolphin"
-                "SWITCH" -> "Yuzu 或 Sudachi"
+                "SWITCH" -> "Eden、Yuzu 或 Sudachi"
                 else -> "RetroArch"
             }
             Toast.makeText(context, "未检测到已安装的 $platName 模拟器，请先安装 $suggested", Toast.LENGTH_LONG).show()
@@ -382,6 +451,125 @@ object EmulatorLauncher {
         } catch (_: Exception) {}
 
         val bundle = createLaunchBundle(preferredDisplayId)
+
+        // 0. Nintendo Switch (Eden / Yuzu / Sudachi / Suyu / Citron / Skyline)
+        if (effectivePlatform.equals("SWITCH", ignoreCase = true) ||
+            emulatorPkg.contains("eden", ignoreCase = true) ||
+            emulatorPkg.contains("yuzu", ignoreCase = true) ||
+            emulatorPkg.contains("sudachi", ignoreCase = true) ||
+            emulatorPkg.contains("suyu", ignoreCase = true) ||
+            emulatorPkg.contains("citron", ignoreCase = true) ||
+            emulatorPkg.contains("skyline", ignoreCase = true)
+        ) {
+            disableDeathOnFileUriExposure()
+
+            try {
+                context.grantUriPermission(emulatorPkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                context.grantUriPermission(emulatorPkg, fileUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {}
+
+            val resolvedActivity = resolveActivityForClass(context, emulatorPkg, "EmulationActivity")
+                ?: resolveActivityForClass(context, emulatorPkg, "MainActivity")
+            val switchActivities = listOfNotNull(
+                resolvedActivity,
+                "org.yuzu.yuzu_emu.activities.EmulationActivity",
+                "org.yuzu.yuzu_emu.ui.main.MainActivity",
+                "dev.eden.eden_emulator.activities.EmulationActivity",
+                "dev.eden.eden_emulator.ui.main.MainActivity",
+                "org.sudachi.sudachi_emu.activities.EmulationActivity",
+                "org.suyu.suyuemu.activities.EmulationActivity",
+                "org.citron.citron.activities.EmulationActivity"
+            ).distinct()
+
+            // 方式 1: 显式组件 + EmulationActivity + content:// URI (前端最标准直启方式，支持 Scoped Storage)
+            for (act in switchActivities) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        component = ComponentName(emulatorPkg, act)
+                        setDataAndType(uri, "application/x-nsw-rom")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        putExtra("SelectedGame", romFile.absolutePath)
+                        putExtra("GamePath", romFile.absolutePath)
+                        putExtra("game_path", romFile.absolutePath)
+                        putExtra("PATH", romFile.absolutePath)
+                        putExtra("uri", uri.toString())
+                    }
+                    context.startActivity(intent, bundle)
+                    return true
+                } catch (_: Exception) {}
+            }
+
+            // 方式 2: 显式组件 + EmulationActivity + file:// URI
+            for (act in switchActivities) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        component = ComponentName(emulatorPkg, act)
+                        setDataAndType(fileUri, "application/x-nsw-rom")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        putExtra("SelectedGame", romFile.absolutePath)
+                        putExtra("GamePath", romFile.absolutePath)
+                        putExtra("game_path", romFile.absolutePath)
+                        putExtra("PATH", romFile.absolutePath)
+                    }
+                    context.startActivity(intent, bundle)
+                    return true
+                } catch (_: Exception) {}
+            }
+
+            // 方式 3: 显式组件 + 不指定 MIME 类型的 ACTION_VIEW
+            for (act in switchActivities) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        component = ComponentName(emulatorPkg, act)
+                        data = uri
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        putExtra("SelectedGame", romFile.absolutePath)
+                        putExtra("GamePath", romFile.absolutePath)
+                        putExtra("game_path", romFile.absolutePath)
+                        putExtra("PATH", romFile.absolutePath)
+                    }
+                    context.startActivity(intent, bundle)
+                    return true
+                } catch (_: Exception) {}
+            }
+
+            // 方式 4: 隐式 ACTION_VIEW + application/x-nsw-rom
+            try {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setPackage(emulatorPkg)
+                    setDataAndType(uri, "application/x-nsw-rom")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra("SelectedGame", romFile.absolutePath)
+                    putExtra("GamePath", romFile.absolutePath)
+                    putExtra("game_path", romFile.absolutePath)
+                    putExtra("PATH", romFile.absolutePath)
+                }
+                if (intent.resolveActivity(context.packageManager) != null) {
+                    context.startActivity(intent, bundle)
+                    return true
+                }
+            } catch (_: Exception) {}
+
+            // 方式 5: 隐式 ACTION_VIEW + fileUri
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, fileUri).apply {
+                    setPackage(emulatorPkg)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra("SelectedGame", romFile.absolutePath)
+                    putExtra("GamePath", romFile.absolutePath)
+                    putExtra("game_path", romFile.absolutePath)
+                    putExtra("PATH", romFile.absolutePath)
+                }
+                if (intent.resolveActivity(context.packageManager) != null) {
+                    context.startActivity(intent, bundle)
+                    return true
+                }
+            } catch (_: Exception) {}
+
+            // 方式 6: 兜底调用系统通用 App 启动并传递 ROM 路径参数
+            val launchedApp = launchAndroidApp(context, emulatorPkg, "", preferredDisplayId, romFile.absolutePath, uri)
+            if (launchedApp) return true
+        }
 
         // 1. RetroArch (GBA / GBC / GB / FC / SFC / MD / Arcade / N64 / PS1 等)
         if (emulatorPkg.startsWith("com.retroarch")) {
