@@ -610,18 +610,29 @@ class LauncherRepository(private val context: Context) {
             prefs.edit().putBoolean(KEY_HIDE_GAMES_WITHOUT_ROM, value).apply()
         }
 
+    private val validRomCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val validCoverCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    fun clearValidityCaches() {
+        validRomCache.clear()
+        validCoverCache.clear()
+    }
+
     fun hasValidRom(slot: GridSlotItem): Boolean {
         if (slot.isDemo) {
             val rom = slot.romPath
-            return rom.isNotBlank() && File(rom).exists() && File(rom).length() > 0
+            return rom.isNotBlank() && validRomCache.getOrPut(rom) {
+                val f = File(rom)
+                f.exists() && f.length() > 0
+            }
         }
         if (slot.type == PlatformType.EMPTY) return false
         if (slot.type == PlatformType.ANDROID_APP || slot.type == PlatformType.FOLDER || slot.type == PlatformType.BADGE) return true
         val rom = slot.romPath
         if (rom.isNotBlank()) {
-            val f = File(rom)
-            if (f.exists() && f.length() > 0) {
-                return true
+            return validRomCache.getOrPut(rom) {
+                val f = File(rom)
+                f.exists() && f.length() > 0
             }
         }
         return false
@@ -633,16 +644,17 @@ class LauncherRepository(private val context: Context) {
         if (slot.type == PlatformType.ANDROID_APP || slot.type == PlatformType.FOLDER || slot.type == PlatformType.BADGE) return true
         val box = slot.boxArtPath
         if (box.isNotBlank()) {
-            val f = File(box)
-            if (f.exists() && f.length() > 0) {
-                return true
+            val ok = validCoverCache.getOrPut(box) {
+                val f = File(box)
+                f.exists() && f.length() > 0
             }
+            if (ok) return true
         }
         val icon = slot.iconCachePath
         if (icon.isNotBlank()) {
-            val f = File(icon)
-            if (f.exists() && f.length() > 0) {
-                return true
+            return validCoverCache.getOrPut(icon) {
+                val f = File(icon)
+                f.exists() && f.length() > 0
             }
         }
         return false
@@ -2466,6 +2478,9 @@ class LauncherRepository(private val context: Context) {
      * 获取所有用户手动挂载的游戏目录，包含模拟器专属显示名、游戏款数及启闭状态。
      */
     fun getDiscoveredMediaLibraries(forceRefresh: Boolean = false): List<com.gameconsole.launcher3ds.model.MediaLibraryItem> {
+        if (!forceRefresh) {
+            cachedMediaLibraries?.let { return it }
+        }
         val mounted = getMountedGameDirectories()
         val disabledSet = getDisabledMediaLibs().map { it.replace('\\', '/').trimEnd('/').lowercase() }.toSet()
         val slots = loadRootSlots()
@@ -2509,6 +2524,8 @@ class LauncherRepository(private val context: Context) {
         onProgress: ((progressPercent: Int, statusText: String, detailText: String) -> Unit)? = null
     ): Int {
         clearPegasusInspectionCache()
+        clearValidityCaches()
+        cachedMediaLibraries = null
         onProgress?.invoke(5, "正在检测存储介质与 ROM 目录...", "扫描内置存储与 SD 卡挂载目录")
         if (!customDir.isNullOrBlank()) {
             addCustomRomDir(customDir)

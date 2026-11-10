@@ -1445,7 +1445,11 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         }
     }
 
-    private fun getCandidateRomDirs(): List<String> {
+    private var cachedCandidateRomDirs: List<String>? = null
+    private fun getCandidateRomDirs(forceRefresh: Boolean = false): List<String> {
+        if (!forceRefresh) {
+            cachedCandidateRomDirs?.let { return it }
+        }
         val result = LinkedHashSet<String>()
         val tf = repo.getDetectedTfCardPath()
         val sd = Environment.getExternalStorageDirectory()?.absolutePath ?: "/storage/emulated/0"
@@ -1489,7 +1493,9 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         // 用户自定义目录
         result.addAll(repo.getCustomRomDirs())
 
-        return result.filter { it.isNotBlank() && (File(it).exists() || it.startsWith("/storage")) }.take(10)
+        val finalDirs = result.filter { it.isNotBlank() && (File(it).exists() || it.startsWith("/storage")) }.take(10)
+        cachedCandidateRomDirs = finalDirs
+        return finalDirs
     }
 
     override fun onAppletClicked(applet: SystemAppletType) {
@@ -1655,6 +1661,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
     }
 
     override fun onSettingsPanelClosed() {
+        platformSyncDebounceHandler.removeCallbacks(platformSyncDebounceRunnable)
         upperScreenView.activeApplet = SystemAppletType.NONE
         SoundEffectEngine.playBackCancel()
         syncViewsWithState()
@@ -2014,6 +2021,11 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         }
     }
 
+    private val platformSyncDebounceHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val platformSyncDebounceRunnable = Runnable {
+        syncViewsWithState()
+    }
+
     override fun onPlatformToggled(platformId: String) {
         val normId = com.gameconsole.launcher3ds.model.PlatformCatalog.normalizeId(platformId)
         val current = repo.getEnabledPlatforms().map { com.gameconsole.launcher3ds.model.PlatformCatalog.normalizeId(it) }.toMutableSet()
@@ -2032,7 +2044,9 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         invalidatePlatformGameCountsCache()
         lowerScreenView.invalidate()
         SoundEffectEngine.playSelectApplet()
-        syncViewsWithState()
+
+        platformSyncDebounceHandler.removeCallbacks(platformSyncDebounceRunnable)
+        platformSyncDebounceHandler.postDelayed(platformSyncDebounceRunnable, 120L)
     }
 
     override fun onPresetOnly3dsRequested() {

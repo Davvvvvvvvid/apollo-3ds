@@ -3471,9 +3471,20 @@ class LowerScreenView @JvmOverloads constructor(
                 }
             }
             2 -> {
-                // Tab 2：点击平台卡片，立即切换开启/关闭！
+                // Tab 2：点击平台卡片，0ms 乐观更新 UI 开关状态，带来丝滑顺畅触控反馈！
                 val allPlatforms = com.gameconsole.launcher3ds.model.PlatformCatalog.getAllPlatforms(platformGameCounts.keys + mediaLibraries.map { it.name })
                 val plat = allPlatforms.getOrNull(idx) ?: return
+                val normId = com.gameconsole.launcher3ds.model.PlatformCatalog.normalizeId(plat.id)
+                val newSet = enabledPlatforms.map { com.gameconsole.launcher3ds.model.PlatformCatalog.normalizeId(it) }.toMutableSet()
+                if (newSet.contains(normId)) {
+                    if (newSet.size > 1) {
+                        newSet.remove(normId)
+                    }
+                } else {
+                    newSet.add(normId)
+                }
+                enabledPlatforms = newSet
+                invalidate()
                 listener?.onPlatformToggled(plat.id)
             }
             3 -> {
