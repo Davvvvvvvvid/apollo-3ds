@@ -53,6 +53,7 @@ class LauncherRepository(private val context: Context) {
 
     private val pegasusMetadataCache = java.util.concurrent.ConcurrentHashMap<String, PegasusEntry>()
     private val scannedPegasusFiles = java.util.Collections.synchronizedSet(HashSet<String>())
+    @Volatile private var hasScannedPegasusCandidateDirs = false
 
     fun registerPegasusFile(file: File?) {
         if (file == null || !file.exists() || !file.isFile || file.length() == 0L) return
@@ -227,21 +228,24 @@ class LauncherRepository(private val context: Context) {
             }
         }
 
-        // 2. 缓存未命中时，即时扫描已知存储根目录与挂载目录下的 metadata.pegasus.txt
-        val candidateDirs = LinkedHashSet<File>()
-        for (root in getActiveStorageRoots()) {
-            candidateDirs.add(root)
-        }
-        for (path in getCustomRomDirs(includeStorageRoots = true)) {
-            candidateDirs.add(File(path))
-        }
-        candidateDirs.add(File("I:\\天马G整合包\\【08】3DS--142G\\3DS media\\3DS"))
+        // 2. 缓存未命中时，即时扫描已知存储根目录与挂载目录下的 metadata.pegasus.txt (全生命周期仅全盘探测一次)
+        if (!hasScannedPegasusCandidateDirs) {
+            hasScannedPegasusCandidateDirs = true
+            val candidateDirs = LinkedHashSet<File>()
+            for (root in getActiveStorageRoots()) {
+                candidateDirs.add(root)
+            }
+            for (path in getCustomRomDirs(includeStorageRoots = true)) {
+                candidateDirs.add(File(path))
+            }
+            candidateDirs.add(File("I:\\天马G整合包\\【08】3DS--142G\\3DS media\\3DS"))
 
-        for (dir in candidateDirs) {
-            if (!dir.exists()) continue
-            val txtFile = if (dir.isDirectory) File(dir, "metadata.pegasus.txt") else dir
-            if (txtFile.exists() && txtFile.isFile) {
-                registerPegasusFile(txtFile)
+            for (dir in candidateDirs) {
+                if (!dir.exists()) continue
+                val txtFile = if (dir.isDirectory) File(dir, "metadata.pegasus.txt") else dir
+                if (txtFile.exists() && txtFile.isFile) {
+                    registerPegasusFile(txtFile)
+                }
             }
         }
 
@@ -979,8 +983,8 @@ class LauncherRepository(private val context: Context) {
                 val boxMissing = item.boxArtPath.isBlank() || !File(item.boxArtPath).exists()
                 val iconMissing = item.iconCachePath.isBlank() || !File(item.iconCachePath).exists()
 
-                // 如果已有封面和图标，跳过全量重匹配，避免海量游戏时卡顿
-                if (!boxMissing && !iconMissing) continue
+                // 如果已有封面或已有提取好的卡带内置图标，跳过全量重匹配，避免海量 NDS 等游戏遍历时 GC 抖动与卡顿
+                if (!boxMissing || !iconMissing) continue
 
                 val logoMissing = item.logoPath.isBlank() || !File(item.logoPath).exists()
                 val videoMissing = item.videoPath.isBlank() || !File(item.videoPath).exists()
@@ -1360,6 +1364,7 @@ class LauncherRepository(private val context: Context) {
 
     fun clearPegasusInspectionCache() {
         pegasusInspectionCache.clear()
+        hasScannedPegasusCandidateDirs = false
     }
 
     fun getPlatformEmulator(platformId: String): String {
@@ -2583,11 +2588,6 @@ class LauncherRepository(private val context: Context) {
         }
         for (root in getActiveStorageRoots()) {
             collectRomFiles(root, validExtensions, foundRomFiles, maxDepth = 4)
-            root.listFiles()?.forEach { topDir ->
-                if (topDir.isDirectory && !topDir.name.startsWith(".") && !topDir.name.equals("Android", ignoreCase = true)) {
-                    collectRomFiles(topDir, validExtensions, foundRomFiles, maxDepth = 4)
-                }
-            }
         }
 
         onProgress?.invoke(15, "正在检索支持的游戏 ROM 文件...", "已在存储介质中找到 ${foundRomFiles.size} 个 ROM 文件")
@@ -2814,6 +2814,7 @@ class LauncherRepository(private val context: Context) {
             mediaByFuzzyKey[normalizeForFuzzy(m.folderName)] = m
         }
 
+        var nextEmptySlotIdx = 0
         for (romFile in remainingRoms) {
             processedRoms++
             if (processedRoms % 25 == 0 || processedRoms == totalRoms) {
@@ -2823,10 +2824,16 @@ class LauncherRepository(private val context: Context) {
             try {
                 val absPath = romFile.absolutePath
 
-                var emptySlotIdx = slots.indexOfFirst { it.type == PlatformType.EMPTY }
-                if (emptySlotIdx < 0) {
-                    emptySlotIdx = slots.size
-                    slots.add(GridSlotItem(id = "empty_$emptySlotIdx", slotIndex = emptySlotIdx, type = PlatformType.EMPTY))
+                while (nextEmptySlotIdx < slots.size && slots[nextEmptySlotIdx].type != PlatformType.EMPTY) {
+                    nextEmptySlotIdx++
+                }
+                val emptySlotIdx = if (nextEmptySlotIdx < slots.size) {
+                    nextEmptySlotIdx++
+                } else {
+                    val idx = slots.size
+                    slots.add(GridSlotItem(id = "empty_$idx", slotIndex = idx, type = PlatformType.EMPTY))
+                    nextEmptySlotIdx = slots.size
+                    idx
                 }
 
                 val ext = romFile.extension.lowercase()

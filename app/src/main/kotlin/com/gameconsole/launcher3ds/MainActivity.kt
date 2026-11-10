@@ -148,38 +148,47 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         }
 
         backgroundExecutor.execute {
-            val newlyAdded = repo.scanRomDirectories(
-                customDir = customDir,
-                removeDemoCards = removeDemoCards
-            )
-            repo.rematchAllMissingCovers()
-            repo.getDiscoveredMediaLibraries(forceRefresh = true)
-            val freshSlots = repo.loadRootSlots()
-            val enabledPlatforms = repo.getEnabledPlatforms()
-            val disabledLibs = repo.getDisabledMediaLibs()
-            val gamesToPrewarm = freshSlots.filter {
-                it.type != PlatformType.EMPTY && !it.isDemo &&
-                it.type != PlatformType.ANDROID_APP && it.type != PlatformType.FOLDER && it.type != PlatformType.BADGE &&
-                enabledPlatforms.contains(it.getEffectivePlatform()) &&
-                !isSlotFromDisabledMediaLib(it, disabledLibs)
-            }.take(16)
-            for (g in gamesToPrewarm) {
-                lowerScreenView.predecodeSlotIconSync(g)
-            }
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                rootSlots = freshSlots
-                invalidatePlatformGameCountsCache()
-                if (showToastOnCompletion) {
-                    val tfDesc = if (repo.getDetectedTfCardPath().isNotBlank()) " (含TF卡)" else ""
-                    val msg = if (newlyAdded > 0) {
-                        "扫描完成：新增 $newlyAdded 款游戏$tfDesc (${repo.scanStorageScope.shortLabel})"
-                    } else {
-                        "扫描完成：游戏库已是最新$tfDesc (${repo.scanStorageScope.shortLabel})"
-                    }
-                    Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            try {
+                val newlyAdded = repo.scanRomDirectories(
+                    customDir = customDir,
+                    removeDemoCards = removeDemoCards
+                )
+                repo.rematchAllMissingCovers()
+                repo.getDiscoveredMediaLibraries(forceRefresh = true)
+                val freshSlots = repo.loadRootSlots()
+                val enabledPlatforms = repo.getEnabledPlatforms()
+                val disabledLibs = repo.getDisabledMediaLibs()
+                val gamesToPrewarm = freshSlots.filter {
+                    it.type != PlatformType.EMPTY && !it.isDemo &&
+                    it.type != PlatformType.ANDROID_APP && it.type != PlatformType.FOLDER && it.type != PlatformType.BADGE &&
+                    enabledPlatforms.contains(it.getEffectivePlatform()) &&
+                    !isSlotFromDisabledMediaLib(it, disabledLibs)
+                }.take(16)
+                for (g in gamesToPrewarm) {
+                    lowerScreenView.predecodeSlotIconSync(g)
                 }
-                syncViewsWithState()
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    rootSlots = freshSlots
+                    invalidatePlatformGameCountsCache()
+                    if (showToastOnCompletion) {
+                        val tfDesc = if (repo.getDetectedTfCardPath().isNotBlank()) " (含TF卡)" else ""
+                        val msg = if (newlyAdded > 0) {
+                            "扫描完成：新增 $newlyAdded 款游戏$tfDesc (${repo.scanStorageScope.shortLabel})"
+                        } else {
+                            "扫描完成：游戏库已是最新$tfDesc (${repo.scanStorageScope.shortLabel})"
+                        }
+                        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                    }
+                    syncViewsWithState()
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("MainActivity", "Error during background ROM scan", t)
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        syncViewsWithState()
+                    }
+                }
             }
         }
     }
@@ -286,15 +295,19 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             triggerBackgroundRomScan(showToastOnCompletion = needsTfScan)
         } else if (hasRealGames && hasStoragePermission()) {
             backgroundExecutor.execute {
-                val rematched = repo.rematchAllMissingCovers()
-                if (rematched > 0) {
-                    val freshSlots = repo.loadRootSlots()
-                    runOnUiThread {
-                        if (!isFinishing && !isDestroyed) {
-                            rootSlots = freshSlots
-                            syncViewsWithState()
+                try {
+                    val rematched = repo.rematchAllMissingCovers()
+                    if (rematched > 0) {
+                        val freshSlots = repo.loadRootSlots()
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed) {
+                                rootSlots = freshSlots
+                                syncViewsWithState()
+                            }
                         }
                     }
+                } catch (t: Throwable) {
+                    android.util.Log.e("MainActivity", "Error in background rematch covers", t)
                 }
             }
         } else if (!hasStoragePermission()) {
