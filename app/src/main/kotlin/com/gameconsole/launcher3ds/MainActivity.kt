@@ -3057,6 +3057,40 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         romBtnRow.addView(addAppBtn, LinearLayout.LayoutParams(0, dp(42), 1f))
         container.addView(romBtnRow)
 
+        val filterRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(6), 0, dp(4))
+        }
+        val onlyRomText = if (repo.hideGamesWithoutRom) "✔ 仅显示已有ROM: 开启" else "○ 仅显示已有ROM: 关闭"
+        val onlyRomColor = if (repo.hideGamesWithoutRom) Color.parseColor("#10B981") else Color.parseColor("#475569")
+        val onlyRomBtn = createStyledButton(ctx, onlyRomText, onlyRomColor, Color.WHITE).apply {
+            setOnClickListener {
+                onToggleHideGamesWithoutRomRequested()
+                activeAppletDialog?.dismiss()
+                showHomeMenuSettingsDialog()
+            }
+        }
+        val hideNoCoverText = if (repo.hideGamesWithoutCover) "✔ 隐藏无封面项: 开启" else "○ 隐藏无封面项: 关闭"
+        val hideNoCoverColor = if (repo.hideGamesWithoutCover) Color.parseColor("#0284C7") else Color.parseColor("#475569")
+        val hideNoCoverBtn = createStyledButton(ctx, hideNoCoverText, hideNoCoverColor, Color.WHITE).apply {
+            setOnClickListener {
+                onToggleHideGamesWithoutCoverRequested()
+                activeAppletDialog?.dismiss()
+                showHomeMenuSettingsDialog()
+            }
+        }
+        filterRow.addView(onlyRomBtn, LinearLayout.LayoutParams(0, dp(40), 1f).apply { rightMargin = dp(6) })
+        filterRow.addView(hideNoCoverBtn, LinearLayout.LayoutParams(0, dp(40), 1f))
+        container.addView(filterRow)
+
+        val filterTip = TextView(ctx).apply {
+            text = "💡 提示：导入天马G整合包若只下载了部分游戏，开启「仅显示已有ROM」后将自动隐藏未下载项目，只呈现点击即玩的真实游戏。"
+            textSize = 12f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(dp(4), dp(2), dp(4), dp(8))
+        }
+        container.addView(filterTip)
+
         addSectionHeader(ctx, container, "🎮 4. 绑定默认 3DS / NDS 模拟器")
         val emuRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL

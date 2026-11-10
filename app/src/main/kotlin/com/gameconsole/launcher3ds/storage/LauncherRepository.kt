@@ -611,7 +611,10 @@ class LauncherRepository(private val context: Context) {
         }
 
     fun hasValidRom(slot: GridSlotItem): Boolean {
-        if (slot.isDemo) return true
+        if (slot.isDemo) {
+            val rom = slot.romPath
+            return rom.isNotBlank() && File(rom).exists() && File(rom).length() > 0
+        }
         if (slot.type == PlatformType.EMPTY) return false
         if (slot.type == PlatformType.ANDROID_APP || slot.type == PlatformType.FOLDER || slot.type == PlatformType.BADGE) return true
         val rom = slot.romPath

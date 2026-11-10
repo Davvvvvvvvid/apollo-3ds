@@ -6024,6 +6024,12 @@ class LowerScreenView @JvmOverloads constructor(
     }
 
     private fun handleTap(x: Float, y: Float) {
+        // 如果当前全部应用全屏抽屉处于开启状态，必须最优先全局拦截处理，严禁穿透到底层的顶部栏（如 zoomInRect、allAppsBtnRect）或主网格！
+        if (isAllAppsDrawerOpen) {
+            handleAllAppsDrawerTap(x, y)
+            return
+        }
+
         if (homeSettingsRect.contains(x, y)) {
             selectedTopIconIndex = -1
             SoundEffectEngine.playSelectApplet()
@@ -6073,11 +6079,6 @@ class LowerScreenView @JvmOverloads constructor(
                 listener?.onAppletClicked(applets[i])
                 return
             }
-        }
-
-        if (isAllAppsDrawerOpen) {
-            handleAllAppsDrawerTap(x, y)
-            return
         }
 
         // 若当前已展开原版 3DS 设置/滤镜面板，优先响应面板内的标签页、卡片与底部栏点击
@@ -6213,13 +6214,24 @@ class LowerScreenView @JvmOverloads constructor(
     }
 
     private fun handleAllAppsDrawerTap(x: Float, y: Float) {
-        if (appsCloseBtnRect.contains(x, y)) {
+        val headerH = 78f
+        // 放大右上角「✕ 关闭」按钮的触控响应区 (向左扩充40px，上下覆盖整个 Header)
+        val closeHitRect = RectF(
+            appsCloseBtnRect.left - 40f,
+            0f,
+            width.toFloat(),
+            headerH + 16f
+        )
+        if (closeHitRect.contains(x, y) || appsCloseBtnRect.contains(x, y) || allAppsBtnRect.contains(x, y)) {
             closeAllAppsDrawer()
             return
         }
 
+        // 顶栏 Header 区域拦截：若点击在 Header 其它区域（如标题文本），不触发下方列表点击
+        if (y <= headerH + 12f) {
+            return
+        }
         val h = height.toFloat()
-        val headerH = 78f
         val listTop = headerH + 12f
         val listBottom = h - 12f
         val listLeft = 24f

@@ -659,8 +659,8 @@ class UpperScreenView @JvmOverloads constructor(
         if (immediate) {
             syncVideoPlaybackInternal()
         } else {
-            // 光标连续滑动时防抖260ms：移动时不加载不解码视频，保证60fps丝滑，停顿后才平滑淡入
-            videoDebounceHandler.postDelayed(videoDebounceRunnable, 260L)
+            // 光标连续滑动时防抖400ms：移动时不加载不解码视频，保证60fps丝滑，停顿后才平滑淡入
+            videoDebounceHandler.postDelayed(videoDebounceRunnable, 400L)
         }
     }
 
@@ -3036,22 +3036,41 @@ class UpperScreenView @JvmOverloads constructor(
         }
     }
 
+    private fun trimBitmapCache() {
+        val it = bitmapCache.keys.iterator()
+        var removed = 0
+        while (it.hasNext() && removed < 25) {
+            bitmapCache.remove(it.next())
+            removed++
+        }
+    }
+
     private fun resolveSlotPreview(item: GridSlotItem): Bitmap? {
         val key = "preview_${item.id}_${item.previewCachePath}_${item.assetPreviewName}"
         val cached = bitmapCache[key]
         if (cached != null) return cached
 
-        var bmp: Bitmap? = null
-        if (item.previewCachePath.isNotBlank() && File(item.previewCachePath).exists()) {
-            bmp = BitmapFactory.decodeFile(item.previewCachePath)
-        } else if (item.assetPreviewName.isNotBlank()) {
-            bmp = decodeAssetBitmap(item.assetPreviewName)
+        if (pendingBitmapKeys.add(key)) {
+            imageExecutor.execute {
+                try {
+                    var bmp: Bitmap? = null
+                    if (item.previewCachePath.isNotBlank() && File(item.previewCachePath).exists()) {
+                        bmp = BitmapFactory.decodeFile(item.previewCachePath)
+                    } else if (item.assetPreviewName.isNotBlank()) {
+                        bmp = decodeAssetBitmap(item.assetPreviewName)
+                    }
+                    if (bmp != null) {
+                        if (bitmapCache.size > 90) trimBitmapCache()
+                        bitmapCache[key] = bmp
+                        postInvalidate()
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    pendingBitmapKeys.remove(key)
+                }
+            }
         }
-        if (bmp != null) {
-            if (bitmapCache.size > 60) bitmapCache.clear()
-            bitmapCache[key] = bmp
-        }
-        return bmp
+        return null
     }
 
     /**
@@ -3061,22 +3080,33 @@ class UpperScreenView @JvmOverloads constructor(
         val key = "back_${item.id}_${item.boxArtPath}"
         val cached = bitmapCache[key]
         if (cached != null) return cached
-        var bmp: Bitmap? = null
-        if (item.boxArtPath.isNotBlank()) {
-            val f = File(item.boxArtPath)
-            val parent = f.parentFile
-            if (parent != null && parent.exists()) {
-                val candidate1 = File(parent, "boxBack.png")
-                val candidate2 = File(parent, "back.png")
-                if (candidate1.exists()) bmp = BitmapFactory.decodeFile(candidate1.absolutePath)
-                else if (candidate2.exists()) bmp = BitmapFactory.decodeFile(candidate2.absolutePath)
+
+        if (pendingBitmapKeys.add(key)) {
+            imageExecutor.execute {
+                try {
+                    var bmp: Bitmap? = null
+                    if (item.boxArtPath.isNotBlank()) {
+                        val f = File(item.boxArtPath)
+                        val parent = f.parentFile
+                        if (parent != null && parent.exists()) {
+                            val candidate1 = File(parent, "boxBack.png")
+                            val candidate2 = File(parent, "back.png")
+                            if (candidate1.exists()) bmp = BitmapFactory.decodeFile(candidate1.absolutePath)
+                            else if (candidate2.exists()) bmp = BitmapFactory.decodeFile(candidate2.absolutePath)
+                        }
+                    }
+                    if (bmp != null) {
+                        if (bitmapCache.size > 90) trimBitmapCache()
+                        bitmapCache[key] = bmp
+                        postInvalidate()
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    pendingBitmapKeys.remove(key)
+                }
             }
         }
-        if (bmp != null) {
-            if (bitmapCache.size > 60) bitmapCache.clear()
-            bitmapCache[key] = bmp
-        }
-        return bmp
+        return null
     }
 
     private fun drawAuthenticBoxBack(canvas: Canvas, r: RectF, item: GridSlotItem, plat: String) {
@@ -3151,7 +3181,7 @@ class UpperScreenView @JvmOverloads constructor(
                             ?: decodeAssetBitmap("3ds_art/mario_3d_land_box.png")
                     }
                     if (bmp != null) {
-                        if (bitmapCache.size > 80) bitmapCache.clear()
+                        if (bitmapCache.size > 90) trimBitmapCache()
                         bitmapCache[key] = bmp
                         postInvalidate()
                     }
@@ -3198,7 +3228,7 @@ class UpperScreenView @JvmOverloads constructor(
                         bmp = decodeAssetBitmap("3ds_art/mario_3d_land_logo.png")
                     }
                     if (bmp != null) {
-                        if (bitmapCache.size > 80) bitmapCache.clear()
+                        if (bitmapCache.size > 90) trimBitmapCache()
                         bitmapCache[key] = bmp
                         postInvalidate()
                     }
@@ -3237,7 +3267,7 @@ class UpperScreenView @JvmOverloads constructor(
                         }
                     }
                     if (bmp != null) {
-                        if (bitmapCache.size > 80) bitmapCache.clear()
+                        if (bitmapCache.size > 90) trimBitmapCache()
                         bitmapCache[key] = bmp
                         postInvalidate()
                     }
