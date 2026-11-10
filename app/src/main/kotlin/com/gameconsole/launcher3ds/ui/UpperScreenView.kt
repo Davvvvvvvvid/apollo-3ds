@@ -153,6 +153,7 @@ class UpperScreenView @JvmOverloads constructor(
             videoDebounceHandler.removeCallbacks(videoDebounceRunnable)
             videoTextureView.animate().cancel()
             videoTextureView.alpha = 0f
+            videoTextureView.visibility = View.INVISIBLE
             isVideoFrameReady = false
             stopAndReleaseVideoPlayer()
 
@@ -270,6 +271,13 @@ class UpperScreenView @JvmOverloads constructor(
         set(value) {
             if (field != value) {
                 field = value
+                if (value == UpperDisplayMode.LOGO_ONLY || value == UpperDisplayMode.LOGO_TITLE) {
+                    stopAndReleaseVideoPlayer()
+                    videoTextureView.visibility = View.INVISIBLE
+                    videoTextureView.alpha = 0f
+                } else {
+                    syncVideoPlayback()
+                }
                 invalidate()
             }
         }
@@ -672,8 +680,11 @@ class UpperScreenView @JvmOverloads constructor(
 
     private fun syncVideoPlayback(immediate: Boolean = false) {
         videoDebounceHandler.removeCallbacks(videoDebounceRunnable)
-        if (!isVideoPreviewEnabled) {
+        val isPureLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
+        if (!isVideoPreviewEnabled || isPureLogoMode) {
             stopAndReleaseVideoPlayer()
+            videoTextureView.visibility = View.INVISIBLE
+            videoTextureView.alpha = 0f
             return
         }
         if (immediate) {
@@ -685,8 +696,11 @@ class UpperScreenView @JvmOverloads constructor(
     }
 
     private fun syncVideoPlaybackInternal() {
-        if (!isVideoPreviewEnabled) {
+        val isPureLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
+        if (!isVideoPreviewEnabled || isPureLogoMode) {
             stopAndReleaseVideoPlayer()
+            videoTextureView.visibility = View.INVISIBLE
+            videoTextureView.alpha = 0f
             return
         }
         val item = selectedSlot
@@ -723,6 +737,7 @@ class UpperScreenView @JvmOverloads constructor(
                     videoPlayer?.start()
                 }
                 if (isVideoFrameReady) {
+                    videoTextureView.visibility = View.VISIBLE
                     videoTextureView.animate().alpha(1f).setDuration(220).start()
                 }
                 return
@@ -789,17 +804,23 @@ class UpperScreenView @JvmOverloads constructor(
                     currentVideoNativeWidth = player.videoWidth
                     currentVideoNativeHeight = player.videoHeight
                 }
-                if (currentVideoPath == targetVideo && isHostResumed && isStageApplet(activeApplet)) {
+                if (currentVideoPath == targetVideo && isHostResumed && isStageApplet(activeApplet) &&
+                    upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
                     try {
                         val isBannerNow = item != null && item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank())
                         val v = if (!isBannerNow && isVideoAudioEnabled) 1f else 0f
                         player.setVolume(v, v)
                         player.start()
                         isVideoFrameReady = true
+                        videoTextureView.visibility = View.VISIBLE
                         videoTextureView.animate().alpha(1f).setDuration(220).start()
                         invalidate()
                     } catch (_: Exception) {
                     }
+                } else {
+                    isVideoFrameReady = false
+                    videoTextureView.visibility = View.INVISIBLE
+                    videoTextureView.alpha = 0f
                 }
             }
             mp.setOnVideoSizeChangedListener { _, width, height ->
@@ -811,9 +832,16 @@ class UpperScreenView @JvmOverloads constructor(
             }
             mp.setOnInfoListener { _, what, _ ->
                 if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
-                    isVideoFrameReady = true
-                    videoTextureView.animate().alpha(1f).setDuration(220).start()
-                    invalidate()
+                    if (upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
+                        isVideoFrameReady = true
+                        videoTextureView.visibility = View.VISIBLE
+                        videoTextureView.animate().alpha(1f).setDuration(220).start()
+                        invalidate()
+                    } else {
+                        isVideoFrameReady = false
+                        videoTextureView.visibility = View.INVISIBLE
+                        videoTextureView.alpha = 0f
+                    }
                 }
                 false
             }
@@ -848,6 +876,7 @@ class UpperScreenView @JvmOverloads constructor(
         videoTextureView.setTransform(videoMatrix)
         videoTextureView.animate().cancel()
         videoTextureView.alpha = 0f
+        videoTextureView.visibility = View.INVISIBLE
         val oldPlayer = videoPlayer
         videoPlayer = null
         if (oldPlayer != null) {
@@ -929,6 +958,11 @@ class UpperScreenView @JvmOverloads constructor(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
+        val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
+        if (isCenteredLogoMode || !isVideoPreviewEnabled) {
+            videoTextureView.visibility = View.INVISIBLE
+            videoTextureView.alpha = 0f
+        }
         // 先渲染子视图（即硬件解码播放 video.mp4 的圆角 videoTextureView）
         super.dispatchDraw(canvas)
 
@@ -1835,7 +1869,8 @@ class UpperScreenView @JvmOverloads constructor(
                 currentScreenAbsRect.set(left, top, left + fullW, top + fullH)
                 currentBoxAbsRect.setEmpty()
 
-                if (isVideoFrameReady && isStageApplet(activeApplet)) {
+                if (isVideoFrameReady && isStageApplet(activeApplet) &&
+                    upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
                     val baseW = (videoTextureView.width).coerceAtLeast(1).toFloat()
                     val baseH = (videoTextureView.height).coerceAtLeast(1).toFloat()
                     videoTextureView.pivotX = 0f
@@ -1844,9 +1879,11 @@ class UpperScreenView @JvmOverloads constructor(
                     videoTextureView.translationY = currentScreenAbsRect.top
                     videoTextureView.scaleX = currentScreenAbsRect.width() / baseW
                     videoTextureView.scaleY = currentScreenAbsRect.height() / baseH
+                    videoTextureView.visibility = View.VISIBLE
                     videoTextureView.alpha = 1f
                     applyVideoTransformIfNeeded()
                 } else {
+                    videoTextureView.visibility = View.INVISIBLE
                     videoTextureView.alpha = 0f
                 }
                 return
@@ -1862,6 +1899,7 @@ class UpperScreenView @JvmOverloads constructor(
                 val cy = stageCenterY + cyOffset + floatHeroY
                 val curRotX = (boxRotAngleX * 0.40f + totalTiltY * 0.25f).coerceIn(-20f, 20f)
 
+                videoTextureView.visibility = View.INVISIBLE
                 videoTextureView.alpha = 0f
                 currentScreenAbsRect.setEmpty()
 
@@ -2077,7 +2115,8 @@ class UpperScreenView @JvmOverloads constructor(
             )
 
             // 同步更新内嵌硬件加速视频视图 (videoTextureView) 的坐标与缩放
-            if (isVideoFrameReady && isStageApplet(activeApplet)) {
+            if (isVideoFrameReady && isStageApplet(activeApplet) &&
+                upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
                 val baseW = (videoTextureView.width).coerceAtLeast(1).toFloat()
                 val baseH = (videoTextureView.height).coerceAtLeast(1).toFloat()
                 videoTextureView.pivotX = 0f
@@ -2086,9 +2125,11 @@ class UpperScreenView @JvmOverloads constructor(
                 videoTextureView.translationY = currentScreenAbsRect.top
                 videoTextureView.scaleX = currentScreenAbsRect.width() / baseW
                 videoTextureView.scaleY = currentScreenAbsRect.height() / baseH
+                videoTextureView.visibility = View.VISIBLE
                 videoTextureView.alpha = 1f
                 applyVideoTransformIfNeeded()
             } else {
+                videoTextureView.visibility = View.INVISIBLE
                 videoTextureView.alpha = 0f
             }
 
