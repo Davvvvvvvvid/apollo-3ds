@@ -2545,12 +2545,13 @@ class LauncherRepository(private val context: Context) {
         clearValidityCaches()
         cachedMediaLibraries = null
         onProgress?.invoke(5, "正在检测存储介质与 ROM 目录...", "扫描内置存储与 SD 卡挂载目录")
-        if (!customDir.isNullOrBlank()) {
-            addCustomRomDir(customDir)
+        val isTargetedCustomScan = !customDir.isNullOrBlank()
+        if (isTargetedCustomScan) {
+            addCustomRomDir(customDir!!)
             lastMountedMediaDir = customDir
         }
-        val dirsToScan = if (!customDir.isNullOrBlank()) {
-            (listOf(customDir) + getCustomRomDirs(includeStorageRoots = true)).distinct()
+        val dirsToScan = if (isTargetedCustomScan) {
+            listOf(customDir!!)
         } else {
             getCustomRomDirs(includeStorageRoots = true)
         }
@@ -2579,15 +2580,16 @@ class LauncherRepository(private val context: Context) {
             val dir = File(dirPath)
             if (dir.exists() && dir.isDirectory) {
                 collectRomFiles(dir, validExtensions, foundRomFiles, maxDepth = 4)
-                dir.parentFile?.let { parent ->
-                    if (parent.exists() && parent.isDirectory) {
-                        collectRomFiles(parent, validExtensions, foundRomFiles, maxDepth = 2)
-                    }
-                }
             }
         }
-        for (root in getActiveStorageRoots()) {
-            collectRomFiles(root, validExtensions, foundRomFiles, maxDepth = 4)
+        // 仅在全盘全量扫描（未指定具体单一目录）时，补充检测未覆盖的存储根目录，绝不重复遍历
+        if (!isTargetedCustomScan) {
+            for (root in getActiveStorageRoots()) {
+                val alreadyCovered = dirsToScan.any { it.equals(root.absolutePath, ignoreCase = true) }
+                if (!alreadyCovered && root.exists() && root.isDirectory) {
+                    collectRomFiles(root, validExtensions, foundRomFiles, maxDepth = 4)
+                }
+            }
         }
 
         onProgress?.invoke(15, "正在检索支持的游戏 ROM 文件...", "已在存储介质中找到 ${foundRomFiles.size} 个 ROM 文件")
@@ -2604,7 +2606,7 @@ class LauncherRepository(private val context: Context) {
 
         // 2. 搜寻所有包含 <游戏名>/{boxFront.png, logo.png, video.mp4} 的 media 目录 (自动排除用户已禁用的媒体库)
         val disabledLibs = getDisabledMediaLibs().map { it.replace("\\", "/").trimEnd('/').lowercase() }
-        val mediaContainers = findMediaContainerDirs(dirsToScan).filter { container ->
+        val mediaContainers = findMediaContainerDirs(dirsToScan, forceRefresh = isTargetedCustomScan).filter { container ->
             val norm = container.absolutePath.replace("\\", "/").trimEnd('/').lowercase()
             !disabledLibs.any { disabled -> norm.startsWith(disabled) }
         }
@@ -2817,7 +2819,7 @@ class LauncherRepository(private val context: Context) {
         var nextEmptySlotIdx = 0
         for (romFile in remainingRoms) {
             processedRoms++
-            if (processedRoms % 25 == 0 || processedRoms == totalRoms) {
+            if (processedRoms % 5 == 0 || processedRoms == totalRoms || processedRoms <= 5) {
                 val pct = 75 + ((processedRoms.toFloat() / totalRoms.coerceAtLeast(1)) * 23).toInt()
                 onProgress?.invoke(pct, "正在解析游戏图标与信息 (${processedRoms}/$totalRoms)...", romFile.name)
             }

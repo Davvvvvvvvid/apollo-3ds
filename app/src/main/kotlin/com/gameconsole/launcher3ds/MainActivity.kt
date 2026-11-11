@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.text.InputType
+import android.text.TextUtils
 import android.view.Display
 import android.view.Gravity
 import android.view.KeyEvent
@@ -33,6 +34,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -1272,23 +1274,34 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             setOnClickListener {
                 val path = dirInput.text.toString().trim()
                 isEnabled = false
-                text = "⏳ 扫描中..."
-                Toast.makeText(ctx, "开始扫描游戏目录，请稍候...", Toast.LENGTH_SHORT).show()
+                val (_, updateProgress, dismissProgress) = showScanProgressDialog(ctx, "🎮 正在扫描与导入游戏")
                 backgroundExecutor.execute {
-                    val count = repo.scanRomDirectories(customDir = path.ifBlank { null }, removeDemoCards = false)
-                    val freshSlots = repo.loadRootSlots()
-                    runOnUiThread {
-                        isEnabled = true
-                        text = "🔄 立即扫描导入"
-                        rootSlots = freshSlots
-                        syncViewsWithState()
-                        SoundEffectEngine.playSelectApplet()
-                        Toast.makeText(ctx, "扫描导入完成！共发现/更新 $count 款游戏与媒体资源", Toast.LENGTH_LONG).show()
-                        // 刷新弹窗内各平台的游戏计数
-                        val newCounts = rootSlots.filter { !it.isDemo && it.type != PlatformType.EMPTY }.groupingBy { it.getEffectivePlatform() }.eachCount()
-                        for (p in allPlatforms) {
-                            val c = newCounts[p.id] ?: 0
-                            checkBoxes[p.id]?.text = "${p.name}  [${c}款]"
+                    try {
+                        val count = repo.scanRomDirectories(
+                            customDir = path.ifBlank { null },
+                            removeDemoCards = false,
+                            onProgress = updateProgress
+                        )
+                        val freshSlots = repo.loadRootSlots()
+                        runOnUiThread {
+                            dismissProgress()
+                            isEnabled = true
+                            rootSlots = freshSlots
+                            syncViewsWithState()
+                            SoundEffectEngine.playSelectApplet()
+                            Toast.makeText(ctx, "扫描导入完成！共发现/更新 $count 款游戏与媒体资源", Toast.LENGTH_LONG).show()
+                            // 刷新弹窗内各平台的游戏计数
+                            val newCounts = rootSlots.filter { !it.isDemo && it.type != PlatformType.EMPTY }.groupingBy { it.getEffectivePlatform() }.eachCount()
+                            for (p in allPlatforms) {
+                                val c = newCounts[p.id] ?: 0
+                                checkBoxes[p.id]?.text = "${p.name}  [${c}款]"
+                            }
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            dismissProgress()
+                            isEnabled = true
+                            Toast.makeText(ctx, "扫描过程遇到异常：${e.message}", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -1334,6 +1347,93 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             e.printStackTrace()
             Toast.makeText(this, "打开游戏库管理失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun showScanProgressDialog(
+        ctx: Context,
+        title: String = "🎮 正在扫描与导入游戏"
+    ): Triple<AlertDialog, (Int, String, String) -> Unit, () -> Unit> {
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(18), dp(22), dp(18))
+        }
+
+        val titleTv = TextView(ctx).apply {
+            text = title
+            textSize = 16f
+            setTextColor(Color.parseColor("#1F2937"))
+            paint.isFakeBoldText = true
+            setPadding(0, 0, 0, dp(10))
+        }
+        root.addView(titleTv)
+
+        val statusTv = TextView(ctx).apply {
+            text = "正在检测存储介质与 ROM 目录..."
+            textSize = 13f
+            setTextColor(Color.parseColor("#4B5563"))
+            setPadding(0, 0, 0, dp(4))
+        }
+        root.addView(statusTv)
+
+        val detailTv = TextView(ctx).apply {
+            text = "请稍候，正在检索文件..."
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#6B7280"))
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, 0, 0, dp(12))
+        }
+        root.addView(detailTv)
+
+        val progressRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val progressBar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = 100
+            progress = 0
+        }
+        val percentTv = TextView(ctx).apply {
+            text = " 0%"
+            textSize = 13f
+            setTextColor(Color.parseColor("#10B981"))
+            paint.isFakeBoldText = true
+            gravity = Gravity.END
+            setPadding(dp(8), 0, 0, 0)
+        }
+        progressRow.addView(progressBar, LinearLayout.LayoutParams(0, dp(14), 1f))
+        progressRow.addView(percentTv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(progressRow)
+
+        val dialog = AlertDialog.Builder(ctx)
+            .setView(root)
+            .setCancelable(false)
+            .create()
+
+        dialog.show()
+
+        val updateProgress: (Int, String, String) -> Unit = { pct, status, detail ->
+            runOnUiThread {
+                progressBar.progress = pct.coerceIn(0, 100)
+                percentTv.text = " ${pct.coerceIn(0, 100)}%"
+                if (status.isNotBlank()) statusTv.text = status
+                if (detail.isNotBlank()) detailTv.text = detail
+            }
+        }
+
+        val dismissAction: () -> Unit = {
+            runOnUiThread {
+                if (dialog.isShowing) {
+                    try {
+                        dialog.dismiss()
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+
+        return Triple(dialog, updateProgress, dismissAction)
     }
 
     private fun promptSelectEmulatorForUnlinkedGame(slot: GridSlotItem) {
@@ -3698,19 +3798,30 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             setOnClickListener {
                 val customPath = pathInput.text.toString().trim()
                 isEnabled = false
-                text = "⏳ 扫描中..."
-                Toast.makeText(ctx, "开始扫描并挂载，请稍候...", Toast.LENGTH_SHORT).show()
+                val (_, updateProgress, dismissProgress) = showScanProgressDialog(ctx, "🎮 正在挂载 3DS media 资源包与 ROM")
                 backgroundExecutor.execute {
-                    val count = repo.scanRomDirectories(customDir = customPath.ifBlank { null }, removeDemoCards = false)
-                    val freshSlots = repo.loadRootSlots()
-                    runOnUiThread {
-                        isEnabled = true
-                        text = "🔍 立即扫描并挂载 3DS media 资源包与 ROM"
-                        rootSlots = freshSlots
-                        syncViewsWithState()
-                        SoundEffectEngine.playSelectApplet()
-                        Toast.makeText(ctx, "扫描挂载完成！新增/更新 $count 款 3DS 游戏与媒体资源", Toast.LENGTH_LONG).show()
-                        activeAppletDialog?.dismiss()
+                    try {
+                        val count = repo.scanRomDirectories(
+                            customDir = customPath.ifBlank { null },
+                            removeDemoCards = false,
+                            onProgress = updateProgress
+                        )
+                        val freshSlots = repo.loadRootSlots()
+                        runOnUiThread {
+                            dismissProgress()
+                            isEnabled = true
+                            rootSlots = freshSlots
+                            syncViewsWithState()
+                            SoundEffectEngine.playSelectApplet()
+                            Toast.makeText(ctx, "扫描挂载完成！新增/更新 $count 款 3DS 游戏与媒体资源", Toast.LENGTH_LONG).show()
+                            activeAppletDialog?.dismiss()
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            dismissProgress()
+                            isEnabled = true
+                            Toast.makeText(ctx, "挂载异常：${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }
@@ -3719,19 +3830,30 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
             setOnClickListener {
                 val customPath = pathInput.text.toString().trim()
                 isEnabled = false
-                text = "⏳ 清理并挂载中..."
-                Toast.makeText(ctx, "正在清理并重新挂载，请稍候...", Toast.LENGTH_SHORT).show()
+                val (_, updateProgress, dismissProgress) = showScanProgressDialog(ctx, "🧹 正在清理演示卡带并重新挂载")
                 backgroundExecutor.execute {
-                    val count = repo.scanRomDirectories(customDir = customPath.ifBlank { null }, removeDemoCards = true)
-                    val freshSlots = repo.loadRootSlots()
-                    runOnUiThread {
-                        isEnabled = true
-                        text = "🧹 清除内置演示卡带并重新挂载真实 3DS media 库"
-                        rootSlots = freshSlots
-                        syncViewsWithState()
-                        SoundEffectEngine.playSelectApplet()
-                        Toast.makeText(ctx, "已清除演示卡带并挂载 $count 款真实 3DS 游戏！", Toast.LENGTH_LONG).show()
-                        activeAppletDialog?.dismiss()
+                    try {
+                        val count = repo.scanRomDirectories(
+                            customDir = customPath.ifBlank { null },
+                            removeDemoCards = true,
+                            onProgress = updateProgress
+                        )
+                        val freshSlots = repo.loadRootSlots()
+                        runOnUiThread {
+                            dismissProgress()
+                            isEnabled = true
+                            rootSlots = freshSlots
+                            syncViewsWithState()
+                            SoundEffectEngine.playSelectApplet()
+                            Toast.makeText(ctx, "已清除演示卡带并挂载 $count 款真实 3DS 游戏！", Toast.LENGTH_LONG).show()
+                            activeAppletDialog?.dismiss()
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            dismissProgress()
+                            isEnabled = true
+                            Toast.makeText(ctx, "清理挂载异常：${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }
