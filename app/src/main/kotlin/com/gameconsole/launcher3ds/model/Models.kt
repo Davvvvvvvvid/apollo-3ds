@@ -142,6 +142,7 @@ data class GridSlotItem(
     var videoPath: String = "",         // 外部 media/<游戏名>/video.mp4 路径
     var bannerAnimationPath: String = "", // 3DS 上屏 3D 横幅动效视频/动画路径 (.mp4)
     var cgfxPath: String = "",          // 3DS 原始 CGFX 3D 模型/横幅文件路径 (.cgfx)
+    var bannerAudioPath: String = "",   // 3DS 原机横幅提示音路径 (.wav，从 CWAV 解码)
     var categoryId: String = "",        // 所属游戏分类 ID (由 GameCategoryClassifier 自动归类)
     var iconCachePath: String = "",     // 解析出的 SMDH / NDS 真实图标缓存路径
     var previewCachePath: String = "",  // 上屏 3D 预览图缓存路径

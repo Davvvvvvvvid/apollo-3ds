@@ -264,6 +264,45 @@ object SoundEffectEngine {
         }
     }
 
+    private var bannerJinglePlayer: MediaPlayer? = null
+
+    fun playBannerJingle(wavPath: String) {
+        if (!sfxEnabled || wavPath.isBlank()) return
+        val file = File(wavPath)
+        if (!file.exists() || file.length() <= 44) return
+        val vol = sfxVolume.coerceIn(0f, 1f)
+        sfxExecutor.execute {
+            try {
+                synchronized(this) {
+                    bannerJinglePlayer?.release()
+                    bannerJinglePlayer = MediaPlayer().apply {
+                        setDataSource(file.absolutePath)
+                        setVolume(vol, vol)
+                        setOnCompletionListener { mp ->
+                            try { mp.release() } catch (_: Exception) {}
+                            synchronized(this@SoundEffectEngine) {
+                                if (bannerJinglePlayer === mp) bannerJinglePlayer = null
+                            }
+                        }
+                        prepare()
+                        start()
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun stopBannerJingle() {
+        sfxExecutor.execute {
+            synchronized(this) {
+                try { bannerJinglePlayer?.stop() } catch (_: Exception) {}
+                try { bannerJinglePlayer?.release() } catch (_: Exception) {}
+                bannerJinglePlayer = null
+            }
+        }
+    }
+
     fun updateTheme(theme: Theme3DS, customAudioFile: String = "") {
         currentThemeNotes = theme.bgmScaleNotes
         if (customAudioFile != customBgmPath) {

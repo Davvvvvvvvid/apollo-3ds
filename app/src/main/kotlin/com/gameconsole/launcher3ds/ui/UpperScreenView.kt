@@ -156,6 +156,12 @@ class UpperScreenView @JvmOverloads constructor(
             videoTextureView.translationX = -9999f
             videoTextureView.translationY = -9999f
             isVideoFrameReady = false
+            isCgfxBannerActive = false
+            currentCgfxKey = ""
+            cgfxBannerView.alpha = 0f
+            cgfxBannerView.translationX = -9999f
+            cgfxBannerView.translationY = -9999f
+            SoundEffectEngine.stopBannerJingle()
             stopAndReleaseVideoPlayer()
 
             selectedSlot = newSlot
@@ -176,6 +182,7 @@ class UpperScreenView @JvmOverloads constructor(
 
         if (changed || newSlot != null) {
             syncVideoPlayback(immediate = immediateVideo)
+            syncCgfxBannerPlayback(newSlot)
         }
         invalidate()
     }
@@ -350,6 +357,11 @@ class UpperScreenView @JvmOverloads constructor(
 
     // 硬件加速内嵌实机视频预览组件 (用于播放 media/<游戏名>/video.mp4)
     private val videoTextureView: TextureView
+    private val cgfxBannerView: CgfxGLBannerView
+    @Volatile
+    private var isCgfxBannerActive: Boolean = false
+    private var currentCgfxKey: String = ""
+    private val cgfxSceneCache = android.util.LruCache<String, com.gameconsole.launcher3ds.parser.CgfxParser.CgfxScene>(6)
     private var videoSurface: Surface? = null
     private var videoPlayer: MediaPlayer? = null
     private var currentVideoPath: String = ""
@@ -446,6 +458,15 @@ class UpperScreenView @JvmOverloads constructor(
             }
         }
         addView(videoTextureView, LayoutParams(baseTextureW, baseTextureH))
+
+        cgfxBannerView = CgfxGLBannerView(context).apply {
+            alpha = 0f
+            pivotX = 0f
+            pivotY = 0f
+            translationX = -9999f
+            translationY = -9999f
+        }
+        addView(cgfxBannerView, LayoutParams(baseTextureW, baseTextureH))
     }
 
     override fun onAttachedToWindow() {
@@ -689,6 +710,70 @@ class UpperScreenView @JvmOverloads constructor(
         } else {
             // 光标滑动防抖：快速滑动时避免频繁创建解码器，一旦停稳（80ms）立即启动硬件解码准备
             videoDebounceHandler.postDelayed(videoDebounceRunnable, 80L)
+        }
+    }
+
+    private fun syncCgfxBannerPlayback(item: GridSlotItem?) {
+        val isPureLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
+        if (item == null || !isHostResumed || isPureLogoMode || !isStageApplet(activeApplet)) {
+            isCgfxBannerActive = false
+            cgfxBannerView.alpha = 0f
+            cgfxBannerView.translationX = -9999f
+            cgfxBannerView.translationY = -9999f
+            return
+        }
+        // 若已有实机视频或预渲染横幅视频，优先播放视频；否则对 3DS 游戏自动提取并实时渲染原机 CGFX 3D 横幅
+        val hasVideoFile = item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank()
+        val is3ds = item.getEffectivePlatform().equals("3DS", ignoreCase = true) || item.type == PlatformType.N3DS
+        if (hasVideoFile || !is3ds) {
+            isCgfxBannerActive = false
+            cgfxBannerView.alpha = 0f
+            cgfxBannerView.translationX = -9999f
+            cgfxBannerView.translationY = -9999f
+            return
+        }
+
+        val targetId = item.id
+        imageExecutor.execute {
+            try {
+                var cgfxPath = item.cgfxPath
+                var wavPath = item.bannerAudioPath
+                if ((cgfxPath.isBlank() || cgfxPath.startsWith("asset://")) && item.romPath.isNotBlank()) {
+                    val romFile = File(item.romPath)
+                    if (romFile.exists()) {
+                        com.gameconsole.launcher3ds.parser.RomBannerExtractor.extractFromRom(context, romFile)?.let { ext ->
+                            cgfxPath = ext.cgfxPath
+                            wavPath = ext.wavPath
+                            item.cgfxPath = cgfxPath
+                            item.bannerAudioPath = wavPath
+                        }
+                    }
+                }
+                if (cgfxPath.isBlank() || cgfxPath.startsWith("asset://")) return@execute
+                val scene = cgfxSceneCache.get(cgfxPath)
+                    ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseFile(File(cgfxPath))?.also {
+                        cgfxSceneCache.put(cgfxPath, it)
+                    }
+
+                post {
+                    if (selectedSlot?.id == targetId && isHostResumed &&
+                        upperDisplayMode != UpperDisplayMode.LOGO_ONLY &&
+                        upperDisplayMode != UpperDisplayMode.LOGO_TITLE &&
+                        !isVideoFrameReady
+                    ) {
+                        if (scene != null) {
+                            currentCgfxKey = cgfxPath
+                            cgfxBannerView.setScene(scene)
+                            isCgfxBannerActive = true
+                            invalidate()
+                        }
+                        if (wavPath.isNotBlank()) {
+                            SoundEffectEngine.playBannerJingle(wavPath)
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            }
         }
     }
 
@@ -965,6 +1050,11 @@ class UpperScreenView @JvmOverloads constructor(
             videoTextureView.translationX = -9999f
             videoTextureView.translationY = -9999f
         }
+        if (isCenteredLogoMode || !isCgfxBannerActive || isVideoFrameReady) {
+            cgfxBannerView.alpha = 0f
+            cgfxBannerView.translationX = -9999f
+            cgfxBannerView.translationY = -9999f
+        }
         // 先渲染子视图（即硬件解码播放 video.mp4 的圆角 videoTextureView）
         super.dispatchDraw(canvas)
 
@@ -1002,9 +1092,11 @@ class UpperScreenView @JvmOverloads constructor(
             canvas.restore()
 
             // 2) 若当前正在播放实机预览视频 (video.mp4) 或 3D 横幅动效，或开启了滤镜，在预览窗右上角绘制微标
-            if ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || videoFilter != VideoFilterType.NONE) {
-                val isShowingBanner = item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank())
+            if ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || (isCgfxBannerActive && cgfxBannerView.alpha > 0.5f) || videoFilter != VideoFilterType.NONE) {
+                val isShowingCgfx = isCgfxBannerActive && !isVideoFrameReady && cgfxBannerView.alpha > 0.5f
+                val isShowingBanner = isShowingCgfx || (item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank()))
                 val baseTag = when {
+                    isShowingCgfx -> "✨ 3DS 原机 3D 横幅 · 实时渲染"
                     isShowingBanner && isVideoFullscreen -> "✨ 3DS 原版 3D 横幅 · 全屏"
                     isShowingBanner -> "✨ 3DS 原版 3D 横幅"
                     isVideoFullscreen && isVideoAudioEnabled -> "🔊 全屏原声"
@@ -2135,6 +2227,26 @@ class UpperScreenView @JvmOverloads constructor(
                 videoTextureView.alpha = 0f
                 videoTextureView.translationX = -9999f
                 videoTextureView.translationY = -9999f
+            }
+
+            // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView) 的坐标、缩放与陀螺仪视差
+            if (!isVideoFrameReady && isCgfxBannerActive && isStageApplet(activeApplet) &&
+                upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
+                val baseW = (cgfxBannerView.width).coerceAtLeast(1).toFloat()
+                val baseH = (cgfxBannerView.height).coerceAtLeast(1).toFloat()
+                cgfxBannerView.pivotX = 0f
+                cgfxBannerView.pivotY = 0f
+                cgfxBannerView.translationX = currentScreenAbsRect.left
+                cgfxBannerView.translationY = currentScreenAbsRect.top
+                cgfxBannerView.scaleX = currentScreenAbsRect.width() / baseW
+                cgfxBannerView.scaleY = currentScreenAbsRect.height() / baseH
+                cgfxBannerView.parallaxX = tiltX / 20f
+                cgfxBannerView.parallaxY = totalTiltY / 20f
+                cgfxBannerView.alpha = 1f
+            } else {
+                cgfxBannerView.alpha = 0f
+                cgfxBannerView.translationX = -9999f
+                cgfxBannerView.translationY = -9999f
             }
 
             canvas.save()

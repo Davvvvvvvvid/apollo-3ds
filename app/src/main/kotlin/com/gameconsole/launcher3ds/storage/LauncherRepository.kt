@@ -2732,6 +2732,7 @@ class LauncherRepository(private val context: Context) {
 
             var bannerAnimPath = bannerFile?.absolutePath ?: ""
             var cgfxPath = cgfxFile?.absolutePath ?: ""
+            var bannerAudioPath = ""
             if (matchedRom != null && itemPlatform == "3DS") {
                 val romDir = matchedRom.parentFile
                 val filesInDir = getDirFiles(romDir)
@@ -2739,6 +2740,12 @@ class LauncherRepository(private val context: Context) {
                 val romBanner = filesInDir.firstOrNull { it.extension.equals("mp4", true) && (it.name.contains("横幅", ignoreCase = true) || it.name.contains("渲染", ignoreCase = true) || it.name.contains("banner", ignoreCase = true)) }
                 if (romCgfx != null && cgfxPath.isBlank()) cgfxPath = romCgfx.absolutePath
                 if (romBanner != null && bannerAnimPath.isBlank()) bannerAnimPath = romBanner.absolutePath
+                if (cgfxPath.isBlank() || bannerAudioPath.isBlank()) {
+                    com.gameconsole.launcher3ds.parser.RomBannerExtractor.extractFromRom(context, matchedRom)?.let { extracted ->
+                        if (cgfxPath.isBlank()) cgfxPath = extracted.cgfxPath
+                        if (bannerAudioPath.isBlank()) bannerAudioPath = extracted.wavPath
+                    }
+                }
             }
 
             val (publisher, primaryColor) = GameCategoryClassifier.inferPublisherAndColor(folderName)
@@ -2756,6 +2763,7 @@ class LauncherRepository(private val context: Context) {
                 existing.videoPath = videoFile?.absolutePath ?: existing.videoPath
                 if (bannerAnimPath.isNotBlank()) existing.bannerAnimationPath = bannerAnimPath
                 if (cgfxPath.isNotBlank()) existing.cgfxPath = cgfxPath
+                if (bannerAudioPath.isNotBlank()) existing.bannerAudioPath = bannerAudioPath
                 if (romAbsPath.isNotBlank()) existing.romPath = romAbsPath
                 val pegasusMeta = findPegasusMetadata(folderName, cleanTitle, folderKey, cleanKey, romAbsPath, matchedRom?.name ?: "")
                 if (pegasusMeta != null) {
@@ -2793,6 +2801,7 @@ class LauncherRepository(private val context: Context) {
                     videoPath = videoFile?.absolutePath ?: "",
                     bannerAnimationPath = bannerAnimPath,
                     cgfxPath = cgfxPath,
+                    bannerAudioPath = bannerAudioPath,
                     primaryColor = primaryColor,
                     secondaryColor = Color.WHITE,
                     isDemo = false
@@ -2911,6 +2920,7 @@ class LauncherRepository(private val context: Context) {
 
                 var bannerAnimPath = ""
                 var cgfxPath = ""
+                var bannerAudioPath = ""
                 if (itemPlatform == "3DS") {
                     val romDir = romFile.parentFile
                     val filesInDir = getDirFiles(romDir)
@@ -2918,6 +2928,12 @@ class LauncherRepository(private val context: Context) {
                     val romBanner = filesInDir.firstOrNull { it.extension.equals("mp4", true) && (it.name.contains("横幅", ignoreCase = true) || it.name.contains("渲染", ignoreCase = true) || it.name.contains("banner", ignoreCase = true)) }
                     bannerAnimPath = romBanner?.absolutePath ?: ""
                     cgfxPath = romCgfx?.absolutePath ?: ""
+                    if (cgfxPath.isBlank() || bannerAudioPath.isBlank()) {
+                        com.gameconsole.launcher3ds.parser.RomBannerExtractor.extractFromRom(context, romFile)?.let { extracted ->
+                            if (cgfxPath.isBlank()) cgfxPath = extracted.cgfxPath
+                            if (bannerAudioPath.isBlank()) bannerAudioPath = extracted.wavPath
+                        }
+                    }
                 }
 
                 val romMeta = findPegasusMetadata(romFile.nameWithoutExtension, cleanTitle, absPath, romFile.name)
@@ -2940,6 +2956,7 @@ class LauncherRepository(private val context: Context) {
                     videoPath = videoPath,
                     bannerAnimationPath = bannerAnimPath,
                     cgfxPath = cgfxPath,
+                    bannerAudioPath = bannerAudioPath,
                     iconCachePath = meta.iconCachePath,
                     assetIconName = if (boxPath.isBlank()) matchedAssetIcon else "",
                     assetPreviewName = if (videoPath.isBlank() && boxPath.isBlank()) matchedAssetPreview else "",
