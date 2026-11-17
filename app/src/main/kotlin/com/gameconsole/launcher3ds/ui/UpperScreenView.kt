@@ -2298,21 +2298,28 @@ class UpperScreenView @JvmOverloads constructor(
                 val targetL = currentScreenAbsRect.left.toInt()
                 val targetT = currentScreenAbsRect.top.toInt()
                 val lp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
-                if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT) {
-                    lp.width = targetW
-                    lp.height = targetH
-                    lp.leftMargin = targetL
-                    lp.topMargin = targetT
-                    cgfxBannerView.layoutParams = lp
-                }
-                if (cgfxBannerView.visibility != View.VISIBLE) {
-                    cgfxBannerView.visibility = View.VISIBLE
+                if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || cgfxBannerView.visibility != View.VISIBLE) {
+                    post {
+                        val curLp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
+                        curLp.width = targetW
+                        curLp.height = targetH
+                        curLp.leftMargin = targetL
+                        curLp.topMargin = targetT
+                        cgfxBannerView.layoutParams = curLp
+                        if (cgfxBannerView.visibility != View.VISIBLE) {
+                            cgfxBannerView.visibility = View.VISIBLE
+                        }
+                    }
                 }
                 cgfxBannerView.parallaxX = tiltX / 20f
                 cgfxBannerView.parallaxY = totalTiltY / 20f
             } else {
                 if (cgfxBannerView.visibility != View.GONE) {
-                    cgfxBannerView.visibility = View.GONE
+                    post {
+                        if (cgfxBannerView.visibility != View.GONE) {
+                            cgfxBannerView.visibility = View.GONE
+                        }
+                    }
                 }
             }
 

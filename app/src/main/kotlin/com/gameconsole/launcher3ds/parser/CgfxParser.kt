@@ -339,48 +339,39 @@ object CgfxParser {
                 if (isp + 4 > data.size) continue
                 val isRel = bb.getInt(isp)
                 val isOff = isp + isRel
-                if (isOff + 0x2C > data.size) continue
+                if (isOff + 0x28 > data.size) continue
 
-                // IndexStream inside Face: +0x20=flags, +0x24=format(0=UByte,1=UShort), +0x28=len, +0x2C=dataRel
-                // Wait: in some Face structs, the IndexStream object is inline or pointed. Verify both:
-                val inlineLen = bb.getInt(isOff + 0x28)
-                val inlineRel = bb.getInt(isOff + 0x2C)
-                val isInline = (inlineLen in 3..65536) && (isOff + 0x2C + inlineRel in 0 until data.size)
-                val idxFormat: Int
-                val idxLen: Int
-                val idxDataAbs: Int
-                if (isInline) {
-                    idxFormat = data[isOff + 0x24].toInt() and 0xFF
-                    idxLen = inlineLen
-                    idxDataAbs = (isOff + 0x2C) + inlineRel
-                } else {
-                    idxFormat = data[isOff + 0x04].toInt() and 0xFF
-                    idxLen = bb.getInt(isOff + 0x0C)
-                    val idxDataRel = bb.getInt(isOff + 0x10)
-                    idxDataAbs = (isOff + 0x10) + idxDataRel
-                }
+                // IndexStream: +0x18=glType (0x1401=UByte, 0x1403=UShort), +0x20=byteLen, +0x24=dataRel
+                val glIdxType = bb.getInt(isOff + 0x18)
+                val idxLen = bb.getInt(isOff + 0x20)
+                val idxDataRel = bb.getInt(isOff + 0x24)
+                val idxDataAbs = (isOff + 0x24) + idxDataRel
 
                 if (idxLen <= 0 || idxDataAbs < 0 || idxDataAbs >= data.size) continue
-                val indices = if (idxFormat == 0) {
-                    val arr = ShortArray(idxLen)
-                    for (k in 0 until idxLen) {
-                        if (idxDataAbs + k < data.size) {
-                            arr[k] = (data[idxDataAbs + k].toInt() and 0xFF).toShort()
-                        }
-                    }
-                    arr
+                val isUByte = (glIdxType == 0x1401 || glIdxType == 0)
+                val rawIndices = if (isUByte) {
+                    val safeLen = idxLen.coerceAtMost(data.size - idxDataAbs)
+                    ShortArray(safeLen) { k -> (data[idxDataAbs + k].toInt() and 0xFF).toShort() }
                 } else {
-                    val count = idxLen / 2
-                    val arr = ShortArray(count)
-                    for (k in 0 until count) {
-                        if (idxDataAbs + k * 2 + 1 < data.size) {
-                            arr[k] = bb.getShort(idxDataAbs + k * 2)
-                        }
-                    }
-                    arr
+                    val count = (idxLen / 2).coerceAtMost((data.size - idxDataAbs) / 2)
+                    ShortArray(count) { k -> bb.getShort(idxDataAbs + k * 2) }
                 }
-                if (indices.isNotEmpty()) {
-                    outMeshes.add(CgfxSubMesh(indices, interleaved, texIdx))
+                // 严格校验三角面片数量与顶点索引越界，彻底杜绝 OpenGL ES 底层 SIGSEGV 闪退
+                val triCount = rawIndices.size / 3
+                if (triCount > 0) {
+                    var valid = true
+                    val trimmed = ShortArray(triCount * 3)
+                    for (k in trimmed.indices) {
+                        val idxVal = rawIndices[k].toInt() and 0xFFFF
+                        if (idxVal >= vertexCount) {
+                            valid = false
+                            break
+                        }
+                        trimmed[k] = rawIndices[k]
+                    }
+                    if (valid) {
+                        outMeshes.add(CgfxSubMesh(trimmed, interleaved, texIdx))
+                    }
                 }
             }
         }
