@@ -78,6 +78,7 @@ class LowerScreenView @JvmOverloads constructor(
         fun onToggleUpperLogoRequested()
         fun onToggleUpperBoxartRequested()
         fun onCycleUpperDisplayModeRequested()
+        fun onCycleUpperDisplayMode3dsRequested()
         fun onPlatformToggled(platformId: String)
         fun onPresetOnly3dsRequested()
         fun onPresetHandheldsRequested()
@@ -202,6 +203,12 @@ class LowerScreenView @JvmOverloads constructor(
         }
 
     var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.BOXART_3D
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    var upperDisplayMode3ds: UpperDisplayMode = UpperDisplayMode.SYSTEM_3DS
         set(value) {
             field = value
             invalidate()
@@ -2831,16 +2838,16 @@ class LowerScreenView @JvmOverloads constructor(
             }
 
             1 -> {
-                // Tab 1：6 款 3DS 主题配色 + Logo显示开关 + 背景音乐开关 (4列 × 2行 = 8张卡片)
-                val cols = 4
-                val rows = 2
+                // Tab 1：6 款 3DS 主题配色 + 3DS/其他平台独立上屏显示模式 + 音效音量 (3列 × 3行 = 9张卡片)
+                val cols = 3
+                val rows = 3
                 val gapX = 12f
-                val gapY = 12f
+                val gapY = 10f
                 val cardW = (contentW - gapX * (cols - 1)) / cols
                 val cardH = (contentH - gapY * (rows - 1)) / rows
                 val themes = ThemeCatalog.ALL_THEMES
 
-                for (idx in 0 until 8) {
+                for (idx in 0 until 9) {
                     val col = idx % cols
                     val row = idx / cols
                     val cl = contentLeft + col * (cardW + gapX)
@@ -2855,13 +2862,13 @@ class LowerScreenView @JvmOverloads constructor(
                         draw3dsSculptedDockButton(
                             canvas = canvas,
                             r = cr,
-                            radius = 18f,
+                            radius = 16f,
                             isPrimary = isCurTheme || isFocused,
                             accentOverride = t.cursorMainColor
                         )
 
-                        val swatchH = (cardH * 0.42f).coerceAtLeast(22f)
-                        val swatchRect = RectF(cr.left + 10f, cr.top + 10f, cr.right - 10f, cr.top + 10f + swatchH)
+                        val swatchH = (cardH * 0.40f).coerceAtLeast(18f)
+                        val swatchRect = RectF(cr.left + 10f, cr.top + 8f, cr.right - 10f, cr.top + 8f + swatchH)
                         paint.shader = LinearGradient(
                             swatchRect.left, swatchRect.top, swatchRect.right, swatchRect.bottom,
                             t.upperSkyTop,
@@ -2872,17 +2879,17 @@ class LowerScreenView @JvmOverloads constructor(
                         paint.shader = null
 
                         textPaint.color = currentTheme.textPrimaryColor
-                        textPaint.textSize = (cardH * 0.15f).coerceIn(13f, 21f)
+                        textPaint.textSize = (cardH * 0.17f).coerceIn(13f, 20f)
                         textPaint.textAlign = Paint.Align.CENTER
                         canvas.drawText(
                             t.name,
                             cr.centerX(),
-                            swatchRect.bottom + (cr.bottom - swatchRect.bottom) * 0.45f,
+                            swatchRect.bottom + (cr.bottom - swatchRect.bottom) * 0.44f,
                             textPaint
                         )
 
                         textPaint.color = if (isCurTheme) t.cursorMainColor else currentTheme.textSecondaryColor
-                        textPaint.textSize = (cardH * 0.115f).coerceIn(11f, 16f)
+                        textPaint.textSize = (cardH * 0.13f).coerceIn(11f, 15f)
                         canvas.drawText(
                             if (isCurTheme) "✔ 当前使用主题" else "点击立即换肤",
                             cr.centerX(),
@@ -2890,30 +2897,42 @@ class LowerScreenView @JvmOverloads constructor(
                             textPaint
                         )
                     } else if (idx == 6) {
-                        // 卡片 6：上屏视觉模式 (4 种方案一键循环切换：✨ 悬浮Logo -> 📦 3D卡盒 -> 💎 双重豪华 -> 🎬 纯净大屏)
+                        // 卡片 6：3DS 游戏专属上屏模式 (默认：✨ 3DS原系统效果)
+                        val curMode = upperDisplayMode3ds
+                        val accent = Color.parseColor(curMode.colorHex)
+                        draw3dsSculptedDockButton(canvas, cr, 16f, isPrimary = true, accentOverride = accent)
+                        textPaint.color = accent
+                        textPaint.textSize = (cardH * 0.21f).coerceIn(14f, 23f)
+                        textPaint.textAlign = Paint.Align.CENTER
+                        canvas.drawText("🎮 3DS: ${curMode.shortLabel}", cr.centerX(), cr.centerY() - cardH * 0.08f, textPaint)
+                        textPaint.color = currentTheme.textSecondaryColor
+                        textPaint.textSize = (cardH * 0.135f).coerceIn(11f, 15f)
+                        canvas.drawText("点击切换3DS专属上屏", cr.centerX(), cr.centerY() + cardH * 0.24f, textPaint)
+                    } else if (idx == 7) {
+                        // 卡片 7：其他游戏上屏模式 (GBA / NDS / Switch / 街机等)
                         val curMode = upperDisplayMode
                         val accent = Color.parseColor(curMode.colorHex)
-                        draw3dsSculptedDockButton(canvas, cr, 18f, isPrimary = isFocused || showUpperBoxart || showUpperLogo, accentOverride = accent)
+                        draw3dsSculptedDockButton(canvas, cr, 16f, isPrimary = isFocused || showUpperBoxart || showUpperLogo, accentOverride = accent)
                         textPaint.color = accent
-                        textPaint.textSize = (cardH * 0.21f).coerceIn(16f, 28f)
+                        textPaint.textSize = (cardH * 0.21f).coerceIn(14f, 23f)
                         textPaint.textAlign = Paint.Align.CENTER
-                        canvas.drawText(curMode.title, cr.centerX(), cr.centerY() - cardH * 0.08f, textPaint)
+                        canvas.drawText("🕹️ 其他: ${curMode.shortLabel}", cr.centerX(), cr.centerY() - cardH * 0.08f, textPaint)
                         textPaint.color = currentTheme.textSecondaryColor
-                        textPaint.textSize = (cardH * 0.12f).coerceIn(11f, 16f)
-                        canvas.drawText("点击切换方案 · " + curMode.shortLabel, cr.centerX(), cr.centerY() + cardH * 0.24f, textPaint)
+                        textPaint.textSize = (cardH * 0.135f).coerceIn(11f, 15f)
+                        canvas.drawText("点击切换其他平台上屏", cr.centerX(), cr.centerY() + cardH * 0.24f, textPaint)
                     } else {
-                        // 卡片 7：音效音量调节设置 (默认 100%，点击依次切换 100% -> 75% -> 50% -> 25% -> 静音)
+                        // 卡片 8：音效音量调节设置 (默认 100%，点击依次切换 100% -> 75% -> 50% -> 25% -> 静音)
                         val isMuted = (sfxVolumePercent == 0 || !isSfxEnabled)
                         val accent = if (!isMuted) Color.parseColor("#F59E0B") else Color.parseColor("#64748B")
-                        draw3dsSculptedDockButton(canvas, cr, 18f, isPrimary = isFocused || !isMuted, accentOverride = accent)
+                        draw3dsSculptedDockButton(canvas, cr, 16f, isPrimary = isFocused || !isMuted, accentOverride = accent)
                         textPaint.color = accent
-                        textPaint.textSize = (cardH * 0.22f).coerceIn(16f, 28f)
+                        textPaint.textSize = (cardH * 0.21f).coerceIn(14f, 23f)
                         textPaint.textAlign = Paint.Align.CENTER
                         val volText = if (isMuted) "🔇 音效：已静音" else "🔊 音效音量：${sfxVolumePercent}%"
                         canvas.drawText(volText, cr.centerX(), cr.centerY() - cardH * 0.08f, textPaint)
                         textPaint.color = currentTheme.textSecondaryColor
-                        textPaint.textSize = (cardH * 0.12f).coerceIn(11f, 16f)
-                        val subText = if (isMuted) "点击恢复音量 (100%)" else "点击循环调节 (100/75/50/静音)"
+                        textPaint.textSize = (cardH * 0.135f).coerceIn(11f, 15f)
+                        val subText = if (isMuted) "点击恢复音量 (100%)" else "点击调节 (100/75/50/静音)"
                         canvas.drawText(subText, cr.centerX(), cr.centerY() + cardH * 0.24f, textPaint)
                     }
 
@@ -3488,10 +3507,9 @@ class LowerScreenView @JvmOverloads constructor(
                 val themes = ThemeCatalog.ALL_THEMES
                 when {
                     idx in themes.indices -> listener?.onThemeSelectedFromPanel(themes[idx])
-                    idx == 6 -> {
-                        listener?.onCycleUpperDisplayModeRequested()
-                    }
-                    idx == 7 -> listener?.onQuickToggleSfxRequested()
+                    idx == 6 -> listener?.onCycleUpperDisplayMode3dsRequested()
+                    idx == 7 -> listener?.onCycleUpperDisplayModeRequested()
+                    idx == 8 -> listener?.onQuickToggleSfxRequested()
                 }
             }
             2 -> {
@@ -6588,7 +6606,7 @@ class LowerScreenView @JvmOverloads constructor(
 
             val (cols, rows) = when (settingsTabIndex) {
                 0 -> 4 to 2 // 8 滤镜
-                1 -> 4 to 2 // 8 主题声音
+                1 -> 3 to 3 // 9 主题与双轨上屏模式
                 3 -> 2 to 3 // 6 游戏库管理
                 else -> 4 to 2
             }

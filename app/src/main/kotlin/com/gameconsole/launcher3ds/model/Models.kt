@@ -1016,7 +1016,8 @@ enum class UpperDisplayMode(
     LOGO_HERO(2, "✨ 悬浮Logo模式", "悬浮Logo", "左侧Logo+右侧视频 · 经典3DS磨砂标题飘带", "#10B981"),
     BOXART_3D(3, "📦 3D卡盒模式", "3D卡盒", "经典立体卡带盒 · 360°自由把玩", "#0284C7"),
     DUAL_HYBRID(4, "💎 双重豪华模式", "双重豪华", "3D立体卡盒 + 悬浮Logo双重光影", "#8B5CF6"),
-    CINEMA_PURE(5, "🎬 纯净大屏模式", "纯净大屏", "居中全景视界 · 无遮挡沉浸式视频", "#F59E0B");
+    CINEMA_PURE(5, "🎬 纯净大屏模式", "纯净大屏", "居中全景视界 · 无遮挡沉浸式视频", "#F59E0B"),
+    SYSTEM_3DS(6, "✨ 3DS原系统效果", "3DS原系统", "原机3D横幅全景动效 · 附原机提示音", "#0EA5E9");
 
     companion object {
         fun fromId(id: Int): UpperDisplayMode = entries.firstOrNull { it.modeId == id } ?: BOXART_3D

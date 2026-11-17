@@ -528,6 +528,7 @@ class LauncherRepository(private val context: Context) {
         private const val KEY_VIDEO_FILTER_ID = "upper_video_filter_id"
         private const val KEY_AUTO_RANDOM_INTERVAL_SEC = "auto_random_interval_sec"
         private const val KEY_UPPER_DISPLAY_MODE = "upper_display_mode_v3"
+        private const val KEY_UPPER_DISPLAY_MODE_3DS = "upper_display_mode_3ds_v1"
         private const val KEY_SHOW_UPPER_BOXART = "show_upper_boxart_v1"
         private const val KEY_SHOW_UPPER_LOGO = "show_upper_logo_v2"
         private const val KEY_ENABLED_PLATFORMS = "enabled_platforms_v1"
@@ -1429,7 +1430,7 @@ class LauncherRepository(private val context: Context) {
         }
         set(mode) {
             val showBox = (mode == UpperDisplayMode.BOXART_3D || mode == UpperDisplayMode.DUAL_HYBRID)
-            val showLogo = (mode != UpperDisplayMode.BOXART_3D && mode != UpperDisplayMode.CINEMA_PURE)
+            val showLogo = (mode != UpperDisplayMode.BOXART_3D && mode != UpperDisplayMode.CINEMA_PURE && mode != UpperDisplayMode.SYSTEM_3DS)
             prefs.edit()
                 .putInt(KEY_UPPER_DISPLAY_MODE, mode.modeId)
                 .putBoolean(KEY_SHOW_UPPER_BOXART, showBox)
@@ -1437,10 +1438,28 @@ class LauncherRepository(private val context: Context) {
                 .apply()
         }
 
-    fun cycleNextUpperDisplayMode(): UpperDisplayMode {
-        val cur = upperDisplayMode
+    var upperDisplayMode3ds: UpperDisplayMode
+        get() {
+            val id = prefs.getInt(KEY_UPPER_DISPLAY_MODE_3DS, UpperDisplayMode.SYSTEM_3DS.modeId)
+            return UpperDisplayMode.fromId(id)
+        }
+        set(mode) {
+            prefs.edit().putInt(KEY_UPPER_DISPLAY_MODE_3DS, mode.modeId).apply()
+        }
+
+    fun cycleNextUpperDisplayMode3ds(): UpperDisplayMode {
+        val cur = upperDisplayMode3ds
         val allModes = UpperDisplayMode.entries
         val next = allModes[(cur.ordinal + 1) % allModes.size]
+        upperDisplayMode3ds = next
+        return next
+    }
+
+    fun cycleNextUpperDisplayMode(): UpperDisplayMode {
+        val cur = upperDisplayMode
+        val otherModes = UpperDisplayMode.entries.filter { it != UpperDisplayMode.SYSTEM_3DS }
+        val idx = otherModes.indexOf(cur).let { if (it < 0) 0 else it }
+        val next = otherModes[(idx + 1) % otherModes.size]
         upperDisplayMode = next
         return next
     }

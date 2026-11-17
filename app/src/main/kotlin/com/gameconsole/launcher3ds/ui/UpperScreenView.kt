@@ -165,6 +165,13 @@ class UpperScreenView @JvmOverloads constructor(
             stopAndReleaseVideoPlayer()
 
             selectedSlot = newSlot
+            val resolvedMode = resolveEffectiveDisplayMode(newSlot)
+            if (upperDisplayMode != resolvedMode) {
+                upperDisplayMode = resolvedMode
+            } else {
+                showUpperBoxart = (resolvedMode == UpperDisplayMode.BOXART_3D || resolvedMode == UpperDisplayMode.DUAL_HYBRID)
+                showUpperLogo = (resolvedMode != UpperDisplayMode.BOXART_3D && resolvedMode != UpperDisplayMode.CINEMA_PURE && resolvedMode != UpperDisplayMode.SYSTEM_3DS)
+            }
             val shouldPlayPreview = if (keepAudioEnabled) true else keepPreviewPlaying
             isPreviewVideoPlaying = shouldPlayPreview
             isVideoAudioEnabled = keepAudioEnabled
@@ -273,20 +280,68 @@ class UpperScreenView @JvmOverloads constructor(
         }
 
     /**
-     * 当前上屏主舞台显示方案
+     * 3DS 游戏专属上屏显示方案（默认：3DS 原系统效果）
      */
-    var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.BOXART_3D
+    var upperDisplayMode3ds: UpperDisplayMode = UpperDisplayMode.SYSTEM_3DS
         set(value) {
             if (field != value) {
                 field = value
+                refreshActiveUpperDisplayMode()
+            }
+        }
+
+    /**
+     * 其他平台游戏（NDS/GBA/PSP/Switch等）上屏显示方案
+     */
+    var upperDisplayModeOther: UpperDisplayMode = UpperDisplayMode.BOXART_3D
+        set(value) {
+            if (field != value) {
+                field = value
+                refreshActiveUpperDisplayMode()
+            }
+        }
+
+    /**
+     * 当前正在生效的上屏主舞台显示方案（自动随当前选中游戏归属平台切换）
+     */
+    var upperDisplayMode: UpperDisplayMode = UpperDisplayMode.SYSTEM_3DS
+        set(value) {
+            if (field != value) {
+                field = value
+                showUpperBoxart = (value == UpperDisplayMode.BOXART_3D || value == UpperDisplayMode.DUAL_HYBRID)
+                showUpperLogo = (value != UpperDisplayMode.BOXART_3D && value != UpperDisplayMode.CINEMA_PURE && value != UpperDisplayMode.SYSTEM_3DS)
                 if (value == UpperDisplayMode.LOGO_ONLY || value == UpperDisplayMode.LOGO_TITLE) {
                     stopAndReleaseVideoPlayer()
                 } else {
                     syncVideoPlayback()
                 }
+                syncCgfxBannerPlayback(selectedSlot)
                 invalidate()
             }
         }
+
+    private fun is3dsSlot(slot: GridSlotItem?): Boolean {
+        if (slot == null) return false
+        if (slot.type == PlatformType.N3DS) return true
+        return slot.getEffectivePlatform().equals("3DS", ignoreCase = true)
+    }
+
+    private fun resolveEffectiveDisplayMode(slot: GridSlotItem?): UpperDisplayMode {
+        return if (is3dsSlot(slot)) upperDisplayMode3ds else upperDisplayModeOther
+    }
+
+    private fun refreshActiveUpperDisplayMode() {
+        val resolved = resolveEffectiveDisplayMode(selectedSlot)
+        if (upperDisplayMode != resolved) {
+            upperDisplayMode = resolved
+        } else {
+            showUpperBoxart = (resolved == UpperDisplayMode.BOXART_3D || resolved == UpperDisplayMode.DUAL_HYBRID)
+            showUpperLogo = (resolved != UpperDisplayMode.BOXART_3D && resolved != UpperDisplayMode.CINEMA_PURE && resolved != UpperDisplayMode.SYSTEM_3DS)
+            syncVideoPlayback()
+            syncCgfxBannerPlayback(selectedSlot)
+            invalidate()
+        }
+    }
 
     /**
      * 是否开启上屏实机演示与横幅视频自动播放预览。
@@ -722,10 +777,14 @@ class UpperScreenView @JvmOverloads constructor(
             cgfxBannerView.translationY = -9999f
             return
         }
-        // 若已有实机视频或预渲染横幅视频，优先播放视频；否则对 3DS 游戏自动提取并实时渲染原机 CGFX 3D 横幅
-        val hasVideoFile = item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank()
-        val is3ds = item.getEffectivePlatform().equals("3DS", ignoreCase = true) || item.type == PlatformType.N3DS
-        if (hasVideoFile || !is3ds) {
+        // 在「3DS原系统效果」模式下，优先呈现 3DS 原机 CGFX 3D 横幅（仅当存在预渲染 bannerAnimationPath 时让位于视频）；其他模式优先播 video.mp4
+        val isSystem3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
+        val hasVideoOverride = if (isSystem3dsMode) {
+            item.bannerAnimationPath.isNotBlank()
+        } else {
+            item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank()
+        }
+        if (hasVideoOverride || !is3dsSlot(item)) {
             isCgfxBannerActive = false
             cgfxBannerView.alpha = 0f
             cgfxBannerView.translationX = -9999f
@@ -759,9 +818,13 @@ class UpperScreenView @JvmOverloads constructor(
                     if (selectedSlot?.id == targetId && isHostResumed &&
                         upperDisplayMode != UpperDisplayMode.LOGO_ONLY &&
                         upperDisplayMode != UpperDisplayMode.LOGO_TITLE &&
-                        !isVideoFrameReady
+                        (!isVideoFrameReady || upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
                     ) {
                         if (scene != null) {
+                            if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
+                                stopAndReleaseVideoPlayer()
+                                isVideoFrameReady = false
+                            }
                             currentCgfxKey = cgfxPath
                             cgfxBannerView.setScene(scene)
                             isCgfxBannerActive = true
@@ -784,6 +847,13 @@ class UpperScreenView @JvmOverloads constructor(
             return
         }
         val item = selectedSlot
+        if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && item != null &&
+            item.bannerAnimationPath.isBlank() &&
+            (isCgfxBannerActive || (item.cgfxPath.isNotBlank() && !item.cgfxPath.startsWith("asset://")))
+        ) {
+            stopAndReleaseVideoPlayer()
+            return
+        }
         val targetVideo = if (isHostResumed && isStageApplet(activeApplet) && item != null && item.type != PlatformType.EMPTY) {
             when {
                 item.bannerAnimationPath.isNotBlank() -> {
@@ -2456,7 +2526,8 @@ class UpperScreenView @JvmOverloads constructor(
             canvas.clipPath(clipPath)
 
             // 当视频尚未首帧就绪或无视频时，判断是否具备视频预览
-            val hasVideoPreview = (item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank()) &&
+            val hasCgfx3d = isCgfxBannerActive || (is3dsSlot(item) && item.cgfxPath.isNotBlank() && !item.cgfxPath.startsWith("asset://"))
+            val hasVideoPreview = (item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank() || hasCgfx3d) &&
                     isVideoPreviewEnabled &&
                     upperDisplayMode != UpperDisplayMode.LOGO_ONLY &&
                     upperDisplayMode != UpperDisplayMode.LOGO_TITLE

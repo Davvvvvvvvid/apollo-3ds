@@ -678,15 +678,15 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         val disabledLibs = repo.getDisabledMediaLibs()
         upperScreenView.currentTheme = theme
         upperScreenView.videoFilter = filter
-        upperScreenView.upperDisplayMode = repo.upperDisplayMode
-        upperScreenView.showUpperBoxart = repo.showUpperBoxart
-        upperScreenView.showUpperLogo = repo.showUpperLogo
+        upperScreenView.upperDisplayMode3ds = repo.upperDisplayMode3ds
+        upperScreenView.upperDisplayModeOther = repo.upperDisplayMode
         upperScreenView.isVideoPreviewEnabled = repo.isVideoPreviewEnabled
         lowerScreenView.currentTheme = theme
         lowerScreenView.currentVideoFilter = filter
         lowerScreenView.gameDescriptionResolver = { slot -> repo.resolveGameDescription(slot) }
         lowerScreenView.pegasusInspectionProvider = { platformId -> repo.inspectPegasusMetadataForPlatform(platformId) }
         lowerScreenView.hasPegasusMetadataProvider = { platformId -> repo.hasPegasusMetadata(platformId) }
+        lowerScreenView.upperDisplayMode3ds = repo.upperDisplayMode3ds
         lowerScreenView.upperDisplayMode = repo.upperDisplayMode
         lowerScreenView.showUpperBoxart = repo.showUpperBoxart
         lowerScreenView.showUpperLogo = repo.showUpperLogo
@@ -1718,16 +1718,21 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         syncViewsWithState()
     }
 
+    override fun onCycleUpperDisplayMode3dsRequested() {
+        val nextMode = repo.cycleNextUpperDisplayMode3ds()
+        upperScreenView.upperDisplayMode3ds = nextMode
+        lowerScreenView.upperDisplayMode3ds = nextMode
+        SoundEffectEngine.playSelectApplet()
+        Toast.makeText(dialogContext(), "🎮 3DS 上屏方案已切换：${nextMode.title}\n(${nextMode.desc})", Toast.LENGTH_SHORT).show()
+        syncViewsWithState()
+    }
+
     override fun onCycleUpperDisplayModeRequested() {
         val nextMode = repo.cycleNextUpperDisplayMode()
-        upperScreenView.upperDisplayMode = repo.upperDisplayMode
-        upperScreenView.showUpperBoxart = repo.showUpperBoxart
-        upperScreenView.showUpperLogo = repo.showUpperLogo
-        lowerScreenView.upperDisplayMode = repo.upperDisplayMode
-        lowerScreenView.showUpperBoxart = repo.showUpperBoxart
-        lowerScreenView.showUpperLogo = repo.showUpperLogo
+        upperScreenView.upperDisplayModeOther = nextMode
+        lowerScreenView.upperDisplayMode = nextMode
         SoundEffectEngine.playSelectApplet()
-        Toast.makeText(dialogContext(), "已切换上屏方案：${nextMode.title}\n(${nextMode.desc})", Toast.LENGTH_SHORT).show()
+        Toast.makeText(dialogContext(), "🕹️ 其他平台上屏方案已切换：${nextMode.title}\n(${nextMode.desc})", Toast.LENGTH_SHORT).show()
         syncViewsWithState()
     }
 
