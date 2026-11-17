@@ -9,6 +9,7 @@ import android.view.TextureView
 import android.view.View
 import android.view.ViewOutlineProvider
 import com.gameconsole.launcher3ds.parser.CgfxParser
+import com.gameconsole.launcher3ds.parser.SpicaCgfxParser
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -30,6 +31,12 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
 
     @Volatile
     private var pendingScene: CgfxParser.CgfxScene? = null
+
+    @Volatile
+    private var pendingSpicaScene: SpicaCgfxParser.SpicaCgfxScene? = null
+
+    @Volatile
+    private var useSpicaPipeline: Boolean = false
 
     @Volatile
     private var sceneDirty: Boolean = false
@@ -73,6 +80,16 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
 
     fun setScene(scene: CgfxParser.CgfxScene?) {
         pendingScene = scene
+        pendingSpicaScene = null
+        useSpicaPipeline = false
+        sceneDirty = true
+        animStartTimeMs = System.currentTimeMillis()
+    }
+
+    fun setSpicaScene(scene: SpicaCgfxParser.SpicaCgfxScene?) {
+        pendingSpicaScene = scene
+        pendingScene = null
+        useSpicaPipeline = true
         sceneDirty = true
         animStartTimeMs = System.currentTimeMillis()
     }
@@ -106,6 +123,34 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
         val texIndex: Int
     )
 
+    private data class SpicaMaterialProgram(
+        val mat: SpicaCgfxParser.SpicaMaterial,
+        val progId: Int,
+        val aPosLoc: Int,
+        val aUv0Loc: Int,
+        val aUv1Loc: Int,
+        val aColLoc: Int,
+        val uMvpLoc: Int,
+        val uUvScale0Loc: Int,
+        val uUvTrans0Loc: Int,
+        val uUvScale1Loc: Int,
+        val uUvTrans1Loc: Int,
+        val uTexLocs: IntArray,
+        val uHasTexLocs: IntArray,
+        val uEmissionLoc: Int,
+        val uAmbientLoc: Int,
+        val uDiffuseLoc: Int,
+        val uConstLocs: IntArray
+    )
+
+    private data class SpicaGlMesh(
+        val vbo: FloatBuffer,
+        val ibo: ShortBuffer,
+        val indexCount: Int,
+        val matIndex: Int,
+        val renderLayer: Int
+    )
+
     private inner class GlRenderThread(private val surfaceTexture: SurfaceTexture) : Thread("CgfxGLThread") {
         @Volatile
         private var running = true
@@ -124,8 +169,11 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
         private var uHasTexLoc = 0
 
         private var activeScene: CgfxParser.CgfxScene? = null
+        private var activeSpicaScene: SpicaCgfxParser.SpicaCgfxScene? = null
         private val glTextures = ArrayList<Int>()
         private val glMeshes = ArrayList<GlMesh>()
+        private val spicaMatPrograms = ArrayList<SpicaMaterialProgram>()
+        private val spicaGlMeshes = ArrayList<SpicaGlMesh>()
 
         private val projMatrix = FloatArray(16)
         private val viewMatrix = FloatArray(16)
@@ -154,10 +202,18 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
 
                 if (sceneDirty) {
                     sceneDirty = false
-                    uploadScene(pendingScene)
+                    if (useSpicaPipeline) {
+                        uploadSpicaScene(pendingSpicaScene)
+                    } else {
+                        uploadScene(pendingScene)
+                    }
                 }
 
-                drawFrame()
+                if (useSpicaPipeline) {
+                    drawSpicaFrame()
+                } else {
+                    drawFrame()
+                }
                 egl?.eglSwapBuffers(eglDisplay, eglSurface)
 
                 try {
@@ -247,6 +303,270 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
             uHasTexLoc = GLES20.glGetUniformLocation(programId, "uHasTex")
         }
 
+        private fun computeMvp(minX: Float, maxX: Float, minY: Float, maxY: Float, minZ: Float, maxZ: Float) {
+            val elapsedSec = (System.currentTimeMillis() - animStartTimeMs) / 1000f
+            val popT = (elapsedSec / 0.35f).coerceIn(0f, 1f)
+            val popScale = 0.72f + 0.28f * (1f - (1f - popT) * (1f - popT))
+
+            val cx = (minX + maxX) * 0.5f
+            val cy = (minY + maxY) * 0.5f
+            val cz = (minZ + maxZ) * 0.5f
+            val spanX = (maxX - minX).coerceAtLeast(0.01f)
+            val spanY = (maxY - minY).coerceAtLeast(0.01f)
+            val spanZ = (maxZ - minZ).coerceAtLeast(0.01f)
+            val maxSpan = max(spanX, max(spanY, spanZ))
+            val normScale = (1.0f / maxSpan) * popScale
+
+            val halfW = (spanX * 0.5f) * normScale
+            val halfH = (spanY * 0.5f) * normScale
+            val halfD = (spanZ * 0.5f) * normScale
+
+            val tanHalfFov = 0.344328f
+            val aspect = (surfaceWidth.coerceAtLeast(1).toFloat() / surfaceHeight.coerceAtLeast(1).toFloat()).coerceAtLeast(0.5f)
+            val distForY = (halfH / (0.86f * tanHalfFov)) + halfD * 0.65f
+            val distForX = (halfW / (0.88f * tanHalfFov * aspect)) + halfD * 0.65f
+            val camDist = max(distForY, distForX).coerceIn(0.65f, 4.5f)
+
+            val swayYaw = sin(elapsedSec * 1.15f) * 14f + parallaxX * 10f
+            val swayPitch = cos(elapsedSec * 0.85f) * 4.5f + parallaxY * 6f
+            val floatY = sin(elapsedSec * 1.7f) * 0.022f
+
+            Matrix.setLookAtM(viewMatrix, 0, 0f, camDist * 0.05f, camDist, 0f, 0f, 0f, 0f, 1f, 0f)
+            Matrix.multiplyMM(vpMatrix, 0, projMatrix, 0, viewMatrix, 0)
+
+            Matrix.setIdentityM(modelMatrix, 0)
+            Matrix.translateM(modelMatrix, 0, 0f, floatY, 0f)
+            Matrix.rotateM(modelMatrix, 0, swayPitch, 1f, 0f, 0f)
+            Matrix.rotateM(modelMatrix, 0, swayYaw, 0f, 1f, 0f)
+            Matrix.scaleM(modelMatrix, 0, normScale, normScale, normScale)
+            Matrix.translateM(modelMatrix, 0, -cx, -cy, -cz)
+
+            Matrix.multiplyMM(mvpMatrix, 0, vpMatrix, 0, modelMatrix, 0)
+        }
+
+        private fun spicaWrapToGl(w: Int): Int = when (w) {
+            0, 1 -> GLES20.GL_CLAMP_TO_EDGE
+            3 -> GLES20.GL_MIRRORED_REPEAT
+            else -> GLES20.GL_REPEAT
+        }
+
+        private fun drawSpicaFrame() {
+            GLES20.glDepthMask(true)
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+            val scene = activeSpicaScene ?: return
+            if (spicaGlMeshes.isEmpty()) return
+
+            computeMvp(scene.minX, scene.maxX, scene.minY, scene.maxY, scene.minZ, scene.maxZ)
+
+            for (mesh in spicaGlMeshes) {
+                val mp = spicaMatPrograms.getOrNull(mesh.matIndex) ?: continue
+                val mat = mp.mat
+                GLES20.glUseProgram(mp.progId)
+                if (mp.uMvpLoc >= 0) GLES20.glUniformMatrix4fv(mp.uMvpLoc, 1, false, mvpMatrix, 0)
+
+                // Depth & Blend state per SPICA GfxFragOp
+                if (mat.depthTestEnabled) GLES20.glEnable(GLES20.GL_DEPTH_TEST) else GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+                GLES20.glDepthMask(mat.depthWriteEnabled)
+                if (mat.blendMode == 0) {
+                    GLES20.glDisable(GLES20.GL_BLEND)
+                } else {
+                    GLES20.glEnable(GLES20.GL_BLEND)
+                    val srcRgb = if (mat.blendColorSrc == GLES20.GL_SRC_ALPHA) GLES20.GL_ONE else mat.blendColorSrc
+                    GLES20.glBlendEquationSeparate(mat.blendColorEq, mat.blendAlphaEq)
+                    GLES20.glBlendFuncSeparate(srcRgb, mat.blendColorDst, GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                }
+
+                // UV transform uniforms
+                if (mp.uUvScale0Loc >= 0) GLES20.glUniform2f(mp.uUvScale0Loc, mat.uvScales[0], mat.uvScales[1])
+                if (mp.uUvTrans0Loc >= 0) GLES20.glUniform2f(mp.uUvTrans0Loc, mat.uvTranslations[0], mat.uvTranslations[1])
+                if (mp.uUvScale1Loc >= 0) GLES20.glUniform2f(mp.uUvScale1Loc, mat.uvScales[2], mat.uvScales[3])
+                if (mp.uUvTrans1Loc >= 0) GLES20.glUniform2f(mp.uUvTrans1Loc, mat.uvTranslations[2], mat.uvTranslations[3])
+
+                // Material & Constant colors
+                if (mp.uEmissionLoc >= 0) GLES20.glUniform4fv(mp.uEmissionLoc, 1, mat.emission, 0)
+                if (mp.uAmbientLoc >= 0) GLES20.glUniform4fv(mp.uAmbientLoc, 1, mat.ambient, 0)
+                if (mp.uDiffuseLoc >= 0) GLES20.glUniform4fv(mp.uDiffuseLoc, 1, mat.diffuse, 0)
+                for (c in 0..5) {
+                    if (mp.uConstLocs[c] >= 0) GLES20.glUniform4fv(mp.uConstLocs[c], 1, mat.constants[c], 0)
+                }
+
+                // Bind up to 3 texture units with SPICA WrapU / WrapV
+                for (u in 0..2) {
+                    val texId = glTextures.getOrNull(mat.texIndices[u]) ?: 0
+                    GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + u)
+                    if (texId != 0) {
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
+                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, spicaWrapToGl(mat.wrapU[u]))
+                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, spicaWrapToGl(mat.wrapV[u]))
+                        if (mp.uTexLocs[u] >= 0) GLES20.glUniform1i(mp.uTexLocs[u], u)
+                        if (mp.uHasTexLocs[u] >= 0) GLES20.glUniform1f(mp.uHasTexLocs[u], 1f)
+                    } else {
+                        if (mp.uHasTexLocs[u] >= 0) GLES20.glUniform1f(mp.uHasTexLocs[u], 0f)
+                    }
+                }
+
+                val stride = 11 * 4
+                if (mp.aPosLoc >= 0) {
+                    mesh.vbo.position(0)
+                    GLES20.glEnableVertexAttribArray(mp.aPosLoc)
+                    GLES20.glVertexAttribPointer(mp.aPosLoc, 3, GLES20.GL_FLOAT, false, stride, mesh.vbo)
+                }
+                if (mp.aUv0Loc >= 0) {
+                    mesh.vbo.position(3)
+                    GLES20.glEnableVertexAttribArray(mp.aUv0Loc)
+                    GLES20.glVertexAttribPointer(mp.aUv0Loc, 2, GLES20.GL_FLOAT, false, stride, mesh.vbo)
+                }
+                if (mp.aUv1Loc >= 0) {
+                    mesh.vbo.position(5)
+                    GLES20.glEnableVertexAttribArray(mp.aUv1Loc)
+                    GLES20.glVertexAttribPointer(mp.aUv1Loc, 2, GLES20.GL_FLOAT, false, stride, mesh.vbo)
+                }
+                if (mp.aColLoc >= 0) {
+                    mesh.vbo.position(7)
+                    GLES20.glEnableVertexAttribArray(mp.aColLoc)
+                    GLES20.glVertexAttribPointer(mp.aColLoc, 4, GLES20.GL_FLOAT, false, stride, mesh.vbo)
+                }
+
+                mesh.ibo.position(0)
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, mesh.indexCount, GLES20.GL_UNSIGNED_SHORT, mesh.ibo)
+            }
+            GLES20.glDepthMask(true)
+            GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+            GLES20.glEnable(GLES20.GL_BLEND)
+            GLES20.glBlendEquation(GLES20.GL_FUNC_ADD)
+            GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        }
+
+        private fun clearSpicaResources() {
+            for (mp in spicaMatPrograms) {
+                if (mp.progId != 0 && mp.progId != programId) {
+                    GLES20.glDeleteProgram(mp.progId)
+                }
+            }
+            spicaMatPrograms.clear()
+            spicaGlMeshes.clear()
+            activeSpicaScene = null
+        }
+
+        private fun uploadSpicaScene(scene: SpicaCgfxParser.SpicaCgfxScene?) {
+            if (glTextures.isNotEmpty()) {
+                GLES20.glDeleteTextures(glTextures.size, glTextures.toIntArray(), 0)
+                glTextures.clear()
+            }
+            clearSpicaResources()
+            glMeshes.clear()
+            activeScene = null
+            activeSpicaScene = scene
+            if (scene == null) return
+
+            for (tex in scene.textures) {
+                val ids = IntArray(1)
+                GLES20.glGenTextures(1, ids, 0)
+                val texId = ids[0]
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                val rgbaBytes = ByteBuffer.allocateDirect(tex.width * tex.height * 4)
+                for (argb in tex.rgbaPixels) {
+                    rgbaBytes.put(((argb ushr 16) and 0xFF).toByte())
+                    rgbaBytes.put(((argb ushr 8) and 0xFF).toByte())
+                    rgbaBytes.put((argb and 0xFF).toByte())
+                    rgbaBytes.put(((argb ushr 24) and 0xFF).toByte())
+                }
+                rgbaBytes.flip()
+                GLES20.glTexImage2D(
+                    GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA,
+                    tex.width, tex.height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, rgbaBytes
+                )
+                glTextures.add(texId)
+            }
+
+            val spicaVs = """
+                uniform mat4 uMvp;
+                uniform vec2 uUvScale0;
+                uniform vec2 uUvTrans0;
+                uniform vec2 uUvScale1;
+                uniform vec2 uUvTrans1;
+                attribute vec3 aPos;
+                attribute vec2 aUv0;
+                attribute vec2 aUv1;
+                attribute vec4 aCol;
+                varying vec2 vUv0;
+                varying vec2 vUv1;
+                varying vec4 vCol;
+                void main() {
+                    vUv0 = aUv0 * uUvScale0 + uUvTrans0;
+                    vUv1 = aUv1 * uUvScale1 + uUvTrans1;
+                    vCol = aCol;
+                    gl_Position = uMvp * vec4(aPos, 1.0);
+                }
+            """.trimIndent()
+
+            for (mat in scene.materials) {
+                val fsCode = SpicaCgfxParser.generateFragmentShader(mat)
+                val prog = createProgramChecked(spicaVs, fsCode).let { if (it != 0) it else programId }
+                spicaMatPrograms.add(
+                    SpicaMaterialProgram(
+                        mat = mat,
+                        progId = prog,
+                        aPosLoc = GLES20.glGetAttribLocation(prog, "aPos"),
+                        aUv0Loc = GLES20.glGetAttribLocation(prog, "aUv0"),
+                        aUv1Loc = GLES20.glGetAttribLocation(prog, "aUv1"),
+                        aColLoc = GLES20.glGetAttribLocation(prog, "aCol"),
+                        uMvpLoc = GLES20.glGetUniformLocation(prog, "uMvp"),
+                        uUvScale0Loc = GLES20.glGetUniformLocation(prog, "uUvScale0"),
+                        uUvTrans0Loc = GLES20.glGetUniformLocation(prog, "uUvTrans0"),
+                        uUvScale1Loc = GLES20.glGetUniformLocation(prog, "uUvScale1"),
+                        uUvTrans1Loc = GLES20.glGetUniformLocation(prog, "uUvTrans1"),
+                        uTexLocs = intArrayOf(
+                            GLES20.glGetUniformLocation(prog, "uTex0"),
+                            GLES20.glGetUniformLocation(prog, "uTex1"),
+                            GLES20.glGetUniformLocation(prog, "uTex2")
+                        ),
+                        uHasTexLocs = intArrayOf(
+                            GLES20.glGetUniformLocation(prog, "uHasTex0"),
+                            GLES20.glGetUniformLocation(prog, "uHasTex1"),
+                            GLES20.glGetUniformLocation(prog, "uHasTex2")
+                        ),
+                        uEmissionLoc = GLES20.glGetUniformLocation(prog, "uEmission"),
+                        uAmbientLoc = GLES20.glGetUniformLocation(prog, "uAmbient"),
+                        uDiffuseLoc = GLES20.glGetUniformLocation(prog, "uDiffuse"),
+                        uConstLocs = IntArray(6) { c -> GLES20.glGetUniformLocation(prog, "uConstant$c") }
+                    )
+                )
+            }
+
+            val sortedMeshes = scene.meshes.sortedBy {
+                scene.materials.getOrNull(it.materialIndex)?.renderLayer ?: 0
+            }
+            for (m in sortedMeshes) {
+                val vb = ByteBuffer.allocateDirect(m.vertices.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                vb.put(m.vertices).position(0)
+                val ib = ByteBuffer.allocateDirect(m.indices.size * 2).order(ByteOrder.nativeOrder()).asShortBuffer()
+                ib.put(m.indices).position(0)
+                val layer = scene.materials.getOrNull(m.materialIndex)?.renderLayer ?: 0
+                spicaGlMeshes.add(SpicaGlMesh(vb, ib, m.indices.size, m.materialIndex, layer))
+            }
+        }
+
+        private fun createProgramChecked(vsCode: String, fsCode: String): Int {
+            val vs = compileShader(GLES20.GL_VERTEX_SHADER, vsCode)
+            val fs = compileShader(GLES20.GL_FRAGMENT_SHADER, fsCode)
+            val prog = GLES20.glCreateProgram()
+            GLES20.glAttachShader(prog, vs)
+            GLES20.glAttachShader(prog, fs)
+            GLES20.glLinkProgram(prog)
+            val linked = IntArray(1)
+            GLES20.glGetProgramiv(prog, GLES20.GL_LINK_STATUS, linked, 0)
+            GLES20.glDeleteShader(vs)
+            GLES20.glDeleteShader(fs)
+            if (linked[0] == 0) {
+                GLES20.glDeleteProgram(prog)
+                return 0
+            }
+            return prog
+        }
+
         private fun drawFrame() {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
             val scene = activeScene ?: return
@@ -330,6 +650,7 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
                 GLES20.glDeleteTextures(glTextures.size, glTextures.toIntArray(), 0)
                 glTextures.clear()
             }
+            clearSpicaResources()
             glMeshes.clear()
             activeScene = scene
             if (scene == null) return
@@ -386,6 +707,7 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
         }
 
         private fun releaseGlAndEgl() {
+            clearSpicaResources()
             if (glTextures.isNotEmpty()) {
                 GLES20.glDeleteTextures(glTextures.size, glTextures.toIntArray(), 0)
                 glTextures.clear()

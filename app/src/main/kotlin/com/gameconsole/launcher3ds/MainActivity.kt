@@ -54,6 +54,7 @@ import com.gameconsole.launcher3ds.model.SystemAppletType
 import com.gameconsole.launcher3ds.model.GameNoteData
 import com.gameconsole.launcher3ds.model.ThemeCatalog
 import com.gameconsole.launcher3ds.model.UpperDisplayMode
+import com.gameconsole.launcher3ds.model.CgfxRenderEngine
 import com.gameconsole.launcher3ds.model.ScanStorageScope
 import com.gameconsole.launcher3ds.storage.LauncherRepository
 import com.gameconsole.launcher3ds.telemetry.StartupProfiler
@@ -679,6 +680,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         upperScreenView.currentTheme = theme
         upperScreenView.videoFilter = filter
         upperScreenView.upperDisplayMode3ds = repo.upperDisplayMode3ds
+        upperScreenView.cgfxRenderEngine = repo.cgfxRenderEngine
         upperScreenView.upperDisplayModeOther = repo.upperDisplayMode
         upperScreenView.isVideoPreviewEnabled = repo.isVideoPreviewEnabled
         lowerScreenView.currentTheme = theme
@@ -687,6 +689,7 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         lowerScreenView.pegasusInspectionProvider = { platformId -> repo.inspectPegasusMetadataForPlatform(platformId) }
         lowerScreenView.hasPegasusMetadataProvider = { platformId -> repo.hasPegasusMetadata(platformId) }
         lowerScreenView.upperDisplayMode3ds = repo.upperDisplayMode3ds
+        lowerScreenView.cgfxRenderEngine = repo.cgfxRenderEngine
         lowerScreenView.upperDisplayMode = repo.upperDisplayMode
         lowerScreenView.showUpperBoxart = repo.showUpperBoxart
         lowerScreenView.showUpperLogo = repo.showUpperLogo
@@ -1724,6 +1727,15 @@ class MainActivity : AppCompatActivity(), LowerScreenView.Listener {
         lowerScreenView.upperDisplayMode3ds = nextMode
         SoundEffectEngine.playSelectApplet()
         Toast.makeText(dialogContext(), "🎮 3DS 上屏方案已切换：${nextMode.title}\n(${nextMode.desc})", Toast.LENGTH_SHORT).show()
+        syncViewsWithState()
+    }
+
+    override fun onCycleCgfxRenderEngineRequested() {
+        val nextEngine = repo.cycleNextCgfxRenderEngine()
+        upperScreenView.cgfxRenderEngine = nextEngine
+        lowerScreenView.cgfxRenderEngine = nextEngine
+        SoundEffectEngine.playSelectApplet()
+        Toast.makeText(dialogContext(), "🧩 3DS 渲染方案已切换：${nextEngine.title}\n(${nextEngine.desc})", Toast.LENGTH_SHORT).show()
         syncViewsWithState()
     }
 

@@ -1030,3 +1030,20 @@ enum class UpperDisplayMode(
         }
     }
 }
+
+/**
+ * 3DS 原机 CGFX 3D 横幅渲染方案
+ */
+enum class CgfxRenderEngine(
+    val engineId: Int,
+    val title: String,
+    val shortLabel: String,
+    val desc: String
+) {
+    SPICA(0, "🚀 SPICA 引擎 (推荐)", "SPICA引擎", "完整解析 PICA200 TEV 混合、UV 采样与材质通道"),
+    LEGACY(1, "🛡️ 经典兼容引擎", "经典引擎", "保留原有轻量级基础贴图渲染方案");
+
+    companion object {
+        fun fromId(id: Int): CgfxRenderEngine = entries.firstOrNull { it.engineId == id } ?: SPICA
+    }
+}

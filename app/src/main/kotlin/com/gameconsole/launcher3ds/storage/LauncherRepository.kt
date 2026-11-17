@@ -15,6 +15,7 @@ import com.gameconsole.launcher3ds.model.NotificationItem
 import com.gameconsole.launcher3ds.model.PlatformType
 import com.gameconsole.launcher3ds.model.ScanStorageScope
 import com.gameconsole.launcher3ds.model.UpperDisplayMode
+import com.gameconsole.launcher3ds.model.CgfxRenderEngine
 import com.gameconsole.launcher3ds.parser.RomHeaderParser
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -529,6 +530,7 @@ class LauncherRepository(private val context: Context) {
         private const val KEY_AUTO_RANDOM_INTERVAL_SEC = "auto_random_interval_sec"
         private const val KEY_UPPER_DISPLAY_MODE = "upper_display_mode_v3"
         private const val KEY_UPPER_DISPLAY_MODE_3DS = "upper_display_mode_3ds_v1"
+        private const val KEY_CGFX_RENDER_ENGINE = "cgfx_render_engine_v1"
         private const val KEY_SHOW_UPPER_BOXART = "show_upper_boxart_v1"
         private const val KEY_SHOW_UPPER_LOGO = "show_upper_logo_v2"
         private const val KEY_ENABLED_PLATFORMS = "enabled_platforms_v1"
@@ -1446,6 +1448,22 @@ class LauncherRepository(private val context: Context) {
         set(mode) {
             prefs.edit().putInt(KEY_UPPER_DISPLAY_MODE_3DS, mode.modeId).apply()
         }
+
+    var cgfxRenderEngine: CgfxRenderEngine
+        get() {
+            val id = prefs.getInt(KEY_CGFX_RENDER_ENGINE, CgfxRenderEngine.SPICA.engineId)
+            return CgfxRenderEngine.fromId(id)
+        }
+        set(engine) {
+            prefs.edit().putInt(KEY_CGFX_RENDER_ENGINE, engine.engineId).apply()
+        }
+
+    fun cycleNextCgfxRenderEngine(): CgfxRenderEngine {
+        val all = CgfxRenderEngine.entries
+        val next = all[(cgfxRenderEngine.ordinal + 1) % all.size]
+        cgfxRenderEngine = next
+        return next
+    }
 
     fun cycleNextUpperDisplayMode3ds(): UpperDisplayMode {
         val cur = upperDisplayMode3ds

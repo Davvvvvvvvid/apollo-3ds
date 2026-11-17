@@ -140,7 +140,7 @@ object CgfxParser {
         return CgfxScene(textures, meshes, minX, maxX, minY, maxY, minZ, maxZ)
     }
 
-    private fun readDict(data: ByteArray, bb: ByteBuffer, dictOff: Int): List<Pair<String, Int>> {
+    internal fun readDict(data: ByteArray, bb: ByteBuffer, dictOff: Int): List<Pair<String, Int>> {
         if (dictOff < 0 || dictOff + 12 > data.size) return emptyList()
         if (data[dictOff] != 'D'.code.toByte() || data[dictOff + 1] != 'I'.code.toByte() ||
             data[dictOff + 2] != 'C'.code.toByte() || data[dictOff + 3] != 'T'.code.toByte()
@@ -164,7 +164,7 @@ object CgfxParser {
         return out
     }
 
-    private fun readCString(data: ByteArray, off: Int): String {
+    internal fun readCString(data: ByteArray, off: Int): String {
         if (off < 0 || off >= data.size) return ""
         var end = off
         while (end < data.size && data[end] != 0.toByte()) end++
@@ -474,7 +474,7 @@ object CgfxParser {
         }
     }
 
-    private fun readGlComp(data: ByteArray, bb: ByteBuffer, base: Int, comp: Int, glType: Int): Float {
+    internal fun readGlComp(data: ByteArray, bb: ByteBuffer, base: Int, comp: Int, glType: Int): Float {
         return when (glType) {
             0x1400 -> { // GL_BYTE
                 val p = base + comp
@@ -495,7 +495,7 @@ object CgfxParser {
         }
     }
 
-    private fun parseTxob(data: ByteArray, bb: ByteBuffer, tOff: Int, name: String): CgfxTexture? {
+    internal fun parseTxob(data: ByteArray, bb: ByteBuffer, tOff: Int, name: String): CgfxTexture? {
         if (tOff + 0x50 > data.size) return null
         // CGFX TXOB (ImageTextureCtr): +0x18 is Height, +0x1C is Width
         val h = bb.getInt(tOff + 0x18)
