@@ -273,9 +273,9 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
             // 让主体尽量饱满地填满预览区域（高度约占 90%、宽度约占 92%），同时防止高模型被裁切
             val tanHalfFov = 0.344328f // tan(19 deg)
             val aspect = (surfaceWidth.coerceAtLeast(1).toFloat() / surfaceHeight.coerceAtLeast(1).toFloat()).coerceAtLeast(0.5f)
-            val distForY = (halfH / (0.45f * tanHalfFov)) + halfD * 0.55f
-            val distForX = (halfW / (0.46f * tanHalfFov * aspect)) + halfD * 0.55f
-            val camDist = max(distForY, distForX).coerceIn(1.0f, 5.5f)
+            val distForY = (halfH / (0.47f * tanHalfFov)) + halfD * 0.45f
+            val distForX = (halfW / (0.48f * tanHalfFov * aspect)) + halfD * 0.45f
+            val camDist = max(distForY, distForX).coerceIn(0.9f, 5.2f)
 
             val swayYaw = sin(elapsedSec * 1.15f) * 14f + parallaxX * 10f
             val swayPitch = cos(elapsedSec * 0.85f) * 4.5f + parallaxY * 6f

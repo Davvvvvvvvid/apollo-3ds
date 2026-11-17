@@ -2302,10 +2302,11 @@ class UpperScreenView @JvmOverloads constructor(
             // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView) 的坐标、尺寸与陀螺仪视差
             if (!isVideoFrameReady && isCgfxBannerActive && isStageApplet(activeApplet) &&
                 upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
-                val targetW = currentScreenAbsRect.width().toInt().coerceAtLeast(1)
-                val targetH = currentScreenAbsRect.height().toInt().coerceAtLeast(1)
-                val targetL = currentScreenAbsRect.left.toInt()
-                val targetT = currentScreenAbsRect.top.toInt()
+                // 让 3D 实时横幅占据上屏中央更宽阔的舞台区域（状态栏以下、底部标题胶囊以上）
+                val targetW = (width * 0.88f).toInt().coerceAtLeast(1)
+                val targetH = (height * 0.74f).toInt().coerceAtLeast(1)
+                val targetL = ((width - targetW) * 0.5f).toInt()
+                val targetT = (height * 0.05f).toInt()
                 val lp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
                 if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || cgfxBannerView.visibility != View.VISIBLE) {
                     post {
