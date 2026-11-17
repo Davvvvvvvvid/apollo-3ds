@@ -186,8 +186,8 @@ object CgfxParser {
             val meshOff = p + mRel
             if (meshOff + 0x44 > data.size) continue
 
-            val shapeIdx = bb.getInt(meshOff + 0x38)
-            val matIdx = bb.getInt(meshOff + 0x3C)
+            val shapeIdx = bb.getInt(meshOff + 0x18)
+            val matIdx = bb.getInt(meshOff + 0x1C)
             val texIdx = matTexIndices.getOrNull(matIdx) ?: -1
 
             if (shapeIdx in 0 until shapeCount) {
