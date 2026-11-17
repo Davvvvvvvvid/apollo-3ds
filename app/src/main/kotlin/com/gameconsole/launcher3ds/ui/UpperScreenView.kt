@@ -2302,11 +2302,11 @@ class UpperScreenView @JvmOverloads constructor(
             // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView) 的坐标、尺寸与陀螺仪视差
             if (!isVideoFrameReady && isCgfxBannerActive && isStageApplet(activeApplet) &&
                 upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
-                // 让 3D 实时横幅占据上屏中央更宽阔的舞台区域（状态栏以下、底部标题胶囊以上）
-                val targetW = (width * 0.88f).toInt().coerceAtLeast(1)
-                val targetH = (height * 0.74f).toInt().coerceAtLeast(1)
+                // 让 3D 实时横幅占据上屏中央最外层舞台区域（不受内圈约束，状态栏以下、标题胶囊以上）
+                val targetW = (width * 0.94f).toInt().coerceAtLeast(1)
+                val targetH = (height * 0.78f).toInt().coerceAtLeast(1)
                 val targetL = ((width - targetW) * 0.5f).toInt()
-                val targetT = (height * 0.05f).toInt()
+                val targetT = (height * 0.03f).toInt()
                 val lp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
                 if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || cgfxBannerView.visibility != View.VISIBLE) {
                     post {
@@ -2902,17 +2902,17 @@ class UpperScreenView @JvmOverloads constructor(
             )
         }
 
-        // 6. 第一行：居中大号游戏主标题（两侧点缀 3DS 菱形星芒）
+        // 6. 第一行：居中游戏主标题（两侧点缀 3DS 菱形星芒，精致适中字号）
         val titleColor = if (isDarkTheme) Color.WHITE else Color.parseColor("#162232")
         textPaint.color = titleColor
         textPaint.typeface = apolloMediumTypeface
         textPaint.isFakeBoldText = false
-        val titleFontSize = (plateH * 0.40f).coerceIn(28f, 52f)
+        val titleFontSize = (plateH * 0.32f).coerceIn(22f, 38f)
         textPaint.textSize = titleFontSize
         textPaint.textAlign = Paint.Align.CENTER
         val maxTextW = plateW * 0.90f
         val cleanTitle = ellipsize(title, textPaint, maxTextW - 52f)
-        val titleY = rect.top + plateH * 0.48f
+        val titleY = rect.top + plateH * 0.46f
         canvas.drawText(
             cleanTitle,
             rect.centerX(),
@@ -2922,16 +2922,16 @@ class UpperScreenView @JvmOverloads constructor(
 
         // 标题左右两侧精致菱形暗纹点缀
         val halfTitleW = textPaint.measureText(cleanTitle) / 2f
-        val diamondSize = titleFontSize * 0.44f
+        val diamondSize = titleFontSize * 0.42f
         textPaint.textSize = diamondSize
         textPaint.color = blendColor(accentColor, currentTheme.cursorMainColor, 0.4f)
         textPaint.alpha = 185
-        canvas.drawText("◆", rect.centerX() - halfTitleW - 20f, titleY - 2f, textPaint)
-        canvas.drawText("◆", rect.centerX() + halfTitleW + 20f, titleY - 2f, textPaint)
+        canvas.drawText("◆", rect.centerX() - halfTitleW - 16f, titleY - 2f, textPaint)
+        canvas.drawText("◆", rect.centerX() + halfTitleW + 16f, titleY - 2f, textPaint)
         textPaint.alpha = 255
 
         // 7. 第二行：居中展示发行商与游玩记录（使用 Apollo 优雅细字体）
-        val subFontSize = (plateH * 0.22f).coerceIn(16f, 26f)
+        val subFontSize = (plateH * 0.19f).coerceIn(14f, 22f)
         textPaint.typeface = apolloRegularTypeface
         textPaint.isFakeBoldText = false
         textPaint.textSize = subFontSize
