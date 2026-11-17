@@ -206,28 +206,52 @@ object CgfxParser {
         textures: List<CgfxTexture>,
         texOffsetToIndex: HashMap<Int, Int>
     ): Int {
-        // MTOB texture mapper 0 pointer is located around matOff + 0xF8..0x118
-        // Scan pointer table safely inside MTOB for a valid TXOB reference or texture name match
-        if (matOff + 0x130 > data.size) return -1
-        for (o in 0xD0..0x120 step 4) {
-            val ptrPos = matOff + o
-            if (ptrPos + 4 > data.size) break
-            val rel = bb.getInt(ptrPos)
-            if (rel in 0x10..0x4000) {
-                val mapperOff = ptrPos + rel
-                if (mapperOff + 0x14 <= data.size) {
-                    // Check if TextureRef inside mapper points to a TXOB
-                    for (tOff in 0x04..0x18 step 4) {
-                        val tPos = mapperOff + tOff
-                        if (tPos + 4 > data.size) break
-                        val tRel = bb.getInt(tPos)
-                        val target = tPos + tRel
-                        texOffsetToIndex[target]?.let { return it }
+        // 1. 先检查 MTOB +0x274 (TexMapper 0) -> +0x08 (TexRef) -> +0x18 (Texture Name)
+        if (matOff + 0x278 <= data.size) {
+            val tmRel = bb.getInt(matOff + 0x274)
+            if (tmRel in 0x10..0x4000) {
+                val tmOff = matOff + 0x274 + tmRel
+                if (tmOff + 0x0C <= data.size) {
+                    val trRel = bb.getInt(tmOff + 0x08)
+                    if (trRel in 0x04..0x4000) {
+                        val trOff = tmOff + 0x08 + trRel
+                        if (trOff + 0x1C <= data.size) {
+                            val nameRel = bb.getInt(trOff + 0x18)
+                            if (nameRel != 0) {
+                                val texName = readCString(data, trOff + 0x18 + nameRel)
+                                val byName = textures.indexOfFirst { it.name.equals(texName, ignoreCase = true) }
+                                if (byName >= 0) return byName
+                            }
+                        }
                     }
                 }
             }
         }
-        return if (textures.isNotEmpty()) 0 else -1
+        // 2. 回退扫描直接 TXOB 指针
+        if (matOff + 0x130 <= data.size) {
+            for (o in 0xD0..0x120 step 4) {
+                val ptrPos = matOff + o
+                if (ptrPos + 4 > data.size) break
+                val rel = bb.getInt(ptrPos)
+                if (rel in 0x10..0x4000) {
+                    val mapperOff = ptrPos + rel
+                    if (mapperOff + 0x14 <= data.size) {
+                        for (tOff in 0x04..0x18 step 4) {
+                            val tPos = mapperOff + tOff
+                            if (tPos + 4 > data.size) break
+                            val tRel = bb.getInt(tPos)
+                            val target = tPos + tRel
+                            texOffsetToIndex[target]?.let { return it }
+                        }
+                    }
+                }
+            }
+        }
+        // 3. 默认取像素面积最大的贴图作为主贴图
+        if (textures.isNotEmpty()) {
+            return textures.indices.maxByOrNull { textures[it].width * textures[it].height } ?: 0
+        }
+        return -1
     }
 
     private fun parseShape(

@@ -2,10 +2,10 @@ package com.gameconsole.launcher3ds.ui
 
 import android.content.Context
 import android.graphics.Outline
-import android.graphics.PixelFormat
+import android.graphics.SurfaceTexture
 import android.opengl.GLES20
-import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import android.view.TextureView
 import android.view.View
 import android.view.ViewOutlineProvider
 import com.gameconsole.launcher3ds.parser.CgfxParser
@@ -13,16 +13,20 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.nio.ShortBuffer
+import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
-import javax.microedition.khronos.opengles.GL10
+import javax.microedition.khronos.egl.EGLContext
+import javax.microedition.khronos.egl.EGLDisplay
+import javax.microedition.khronos.egl.EGLSurface
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 
 /**
- * 3DS 原版 CGFX 上屏 3D 横幅实时 OpenGL ES 2.0 渲染视图
+ * 3DS 原版 CGFX 上屏 3D 横幅实时 OpenGL ES 2.0 渲染视图（基于 TextureView）
+ * 与 videoTextureView 同层序参与 View 树绘制，彻底解决 SurfaceView 被父视图背景遮挡的黑框问题
  */
-class CgfxGLBannerView(context: Context) : GLSurfaceView(context) {
+class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
 
     @Volatile
     private var pendingScene: CgfxParser.CgfxScene? = null
@@ -39,6 +43,17 @@ class CgfxGLBannerView(context: Context) : GLSurfaceView(context) {
     @Volatile
     private var animStartTimeMs: Long = System.currentTimeMillis()
 
+    @Volatile
+    private var surfaceWidth: Int = 1
+
+    @Volatile
+    private var surfaceHeight: Int = 1
+
+    @Volatile
+    private var sizeChanged: Boolean = false
+
+    private var renderThread: GlRenderThread? = null
+
     var cornerRadiusPx: Float = 14f
         set(value) {
             field = value
@@ -46,13 +61,8 @@ class CgfxGLBannerView(context: Context) : GLSurfaceView(context) {
         }
 
     init {
-        setEGLContextClientVersion(2)
-        setEGLConfigChooser(8, 8, 8, 8, 16, 0)
-        holder.setFormat(PixelFormat.TRANSLUCENT)
-        setZOrderMediaOverlay(true)
-        setRenderer(BannerRenderer())
-        renderMode = RENDERMODE_CONTINUOUSLY
-
+        isOpaque = false
+        surfaceTextureListener = this
         clipToOutline = true
         outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) {
@@ -67,6 +77,28 @@ class CgfxGLBannerView(context: Context) : GLSurfaceView(context) {
         animStartTimeMs = System.currentTimeMillis()
     }
 
+    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+        surfaceWidth = max(1, width)
+        surfaceHeight = max(1, height)
+        sizeChanged = true
+        renderThread?.stopRender()
+        renderThread = GlRenderThread(surface).also { it.start() }
+    }
+
+    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+        surfaceWidth = max(1, width)
+        surfaceHeight = max(1, height)
+        sizeChanged = true
+    }
+
+    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+        renderThread?.stopRender()
+        renderThread = null
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+
     private data class GlMesh(
         val vbo: FloatBuffer,
         val ibo: ShortBuffer,
@@ -74,7 +106,15 @@ class CgfxGLBannerView(context: Context) : GLSurfaceView(context) {
         val texIndex: Int
     )
 
-    private inner class BannerRenderer : Renderer {
+    private inner class GlRenderThread(private val surfaceTexture: SurfaceTexture) : Thread("CgfxGLThread") {
+        @Volatile
+        private var running = true
+
+        private var egl: EGL10? = null
+        private var eglDisplay: EGLDisplay = EGL10.EGL_NO_DISPLAY
+        private var eglContext: EGLContext = EGL10.EGL_NO_CONTEXT
+        private var eglSurface: EGLSurface = EGL10.EGL_NO_SURFACE
+
         private var programId = 0
         private var aPosLoc = 0
         private var aUvLoc = 0
@@ -93,7 +133,77 @@ class CgfxGLBannerView(context: Context) : GLSurfaceView(context) {
         private val vpMatrix = FloatArray(16)
         private val mvpMatrix = FloatArray(16)
 
-        override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        fun stopRender() {
+            running = false
+        }
+
+        override fun run() {
+            if (!initEgl()) return
+            initGl()
+            sceneDirty = true
+            sizeChanged = true
+
+            while (running) {
+                if (sizeChanged) {
+                    sizeChanged = false
+                    val w = surfaceWidth.coerceAtLeast(1)
+                    val h = surfaceHeight.coerceAtLeast(1)
+                    GLES20.glViewport(0, 0, w, h)
+                    Matrix.perspectiveM(projMatrix, 0, 38f, w.toFloat() / h.toFloat(), 0.1f, 200f)
+                }
+
+                if (sceneDirty) {
+                    sceneDirty = false
+                    uploadScene(pendingScene)
+                }
+
+                drawFrame()
+                egl?.eglSwapBuffers(eglDisplay, eglSurface)
+
+                try {
+                    sleep(16L)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+
+            releaseGlAndEgl()
+        }
+
+        private fun initEgl(): Boolean {
+            val e = EGLContext.getEGL() as? EGL10 ?: return false
+            egl = e
+            eglDisplay = e.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY)
+            if (eglDisplay === EGL10.EGL_NO_DISPLAY) return false
+            val version = IntArray(2)
+            if (!e.eglInitialize(eglDisplay, version)) return false
+
+            val configSpec = intArrayOf(
+                EGL10.EGL_RENDERABLE_TYPE, 4, // EGL_OPENGL_ES2_BIT
+                EGL10.EGL_RED_SIZE, 8,
+                EGL10.EGL_GREEN_SIZE, 8,
+                EGL10.EGL_BLUE_SIZE, 8,
+                EGL10.EGL_ALPHA_SIZE, 8,
+                EGL10.EGL_DEPTH_SIZE, 16,
+                EGL10.EGL_NONE
+            )
+            val configs = arrayOfNulls<EGLConfig>(1)
+            val numConfig = IntArray(1)
+            if (!e.eglChooseConfig(eglDisplay, configSpec, configs, 1, numConfig) || numConfig[0] <= 0) {
+                return false
+            }
+            val config = configs[0] ?: return false
+            val attribList = intArrayOf(0x3098, 2, EGL10.EGL_NONE) // EGL_CONTEXT_CLIENT_VERSION = 2
+            eglContext = e.eglCreateContext(eglDisplay, config, EGL10.EGL_NO_CONTEXT, attribList)
+            if (eglContext === EGL10.EGL_NO_CONTEXT) return false
+
+            eglSurface = e.eglCreateWindowSurface(eglDisplay, config, surfaceTexture, null)
+            if (eglSurface === EGL10.EGL_NO_SURFACE) return false
+
+            return e.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
+        }
+
+        private fun initGl() {
             GLES20.glClearColor(0.05f, 0.08f, 0.14f, 1.0f)
             GLES20.glDisable(GLES20.GL_CULL_FACE)
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -135,28 +245,14 @@ class CgfxGLBannerView(context: Context) : GLSurfaceView(context) {
             uMvpLoc = GLES20.glGetUniformLocation(programId, "uMvp")
             uTexLoc = GLES20.glGetUniformLocation(programId, "uTex")
             uHasTexLoc = GLES20.glGetUniformLocation(programId, "uHasTex")
-
-            sceneDirty = true
         }
 
-        override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
-            GLES20.glViewport(0, 0, width, height)
-            val aspect = width.toFloat() / max(1, height).toFloat()
-            Matrix.perspectiveM(projMatrix, 0, 38f, aspect, 0.1f, 200f)
-        }
-
-        override fun onDrawFrame(gl: GL10?) {
-            if (sceneDirty) {
-                sceneDirty = false
-                uploadScene(pendingScene)
-            }
-
+        private fun drawFrame() {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
             val scene = activeScene ?: return
             if (glMeshes.isEmpty() || programId == 0) return
 
             val elapsedSec = (System.currentTimeMillis() - animStartTimeMs) / 1000f
-            // 原机级入场弹性缩放 + 柔和悬浮与 3D 视差摆动
             val popT = (elapsedSec / 0.35f).coerceIn(0f, 1f)
             val popScale = 0.72f + 0.28f * (1f - (1f - popT) * (1f - popT))
 
@@ -275,6 +371,23 @@ class CgfxGLBannerView(context: Context) : GLSurfaceView(context) {
             GLES20.glShaderSource(shader, code)
             GLES20.glCompileShader(shader)
             return shader
+        }
+
+        private fun releaseGlAndEgl() {
+            if (glTextures.isNotEmpty()) {
+                GLES20.glDeleteTextures(glTextures.size, glTextures.toIntArray(), 0)
+                glTextures.clear()
+            }
+            if (programId != 0) {
+                GLES20.glDeleteProgram(programId)
+                programId = 0
+            }
+            egl?.let { e ->
+                e.eglMakeCurrent(eglDisplay, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_SURFACE, EGL10.EGL_NO_CONTEXT)
+                if (eglSurface !== EGL10.EGL_NO_SURFACE) e.eglDestroySurface(eglDisplay, eglSurface)
+                if (eglContext !== EGL10.EGL_NO_CONTEXT) e.eglDestroyContext(eglDisplay, eglContext)
+                e.eglTerminate(eglDisplay)
+            }
         }
     }
 }
