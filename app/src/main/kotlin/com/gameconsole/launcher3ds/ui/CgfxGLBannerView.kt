@@ -263,13 +263,24 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
             val spanY = (scene.maxY - scene.minY).coerceAtLeast(0.01f)
             val spanZ = (scene.maxZ - scene.minZ).coerceAtLeast(0.01f)
             val maxSpan = max(spanX, max(spanY, spanZ))
-            val normScale = (3.15f / maxSpan) * popScale
+            val normScale = (1.0f / maxSpan) * popScale
+
+            val halfW = (spanX * 0.5f) * normScale
+            val halfH = (spanY * 0.5f) * normScale
+            val halfD = (spanZ * 0.5f) * normScale
+
+            // 依据 38° 垂直视角与当前宽高比，自适应计算相机距离，避免高模型被裁切或宽模型过小
+            val tanHalfFov = 0.344328f // tan(19 deg)
+            val aspect = (surfaceWidth.coerceAtLeast(1).toFloat() / surfaceHeight.coerceAtLeast(1).toFloat()).coerceAtLeast(0.5f)
+            val distForY = (halfH / (0.36f * tanHalfFov)) + halfD
+            val distForX = (halfW / (0.40f * tanHalfFov * aspect)) + halfD
+            val camDist = max(distForY, distForX).coerceIn(1.2f, 6.0f)
 
             val swayYaw = sin(elapsedSec * 1.15f) * 14f + parallaxX * 10f
             val swayPitch = cos(elapsedSec * 0.85f) * 4.5f + parallaxY * 6f
-            val floatY = sin(elapsedSec * 1.7f) * 0.045f
+            val floatY = sin(elapsedSec * 1.7f) * 0.022f
 
-            Matrix.setLookAtM(viewMatrix, 0, 0f, 0.22f, 3.65f, 0f, -0.04f, 0f, 0f, 1f, 0f)
+            Matrix.setLookAtM(viewMatrix, 0, 0f, camDist * 0.05f, camDist, 0f, 0f, 0f, 0f, 1f, 0f)
             Matrix.multiplyMM(vpMatrix, 0, projMatrix, 0, viewMatrix, 0)
 
             Matrix.setIdentityM(modelMatrix, 0)

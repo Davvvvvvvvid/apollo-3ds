@@ -17,7 +17,8 @@ object CgfxParser {
         val name: String,
         val width: Int,
         val height: Int,
-        val rgbaPixels: IntArray
+        val rgbaPixels: IntArray,
+        val format: Int = 0
     )
 
     data class CgfxSubMesh(
@@ -77,28 +78,62 @@ object CgfxParser {
         var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
         var minZ = Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
 
+        val combinedTexCache = HashMap<String, Int>()
         if (modelDictCnt > 0 && modelDictRel != 0) {
             val modelDictAbs = (0x1C + 4) + modelDictRel
             val modelEntries = readDict(data, bb, modelDictAbs)
             for ((_, modelOff) in modelEntries) {
-                parseCmdl(data, bb, modelOff, textures, texOffsetToIndex, meshes)
+                parseCmdl(data, bb, modelOff, textures, texOffsetToIndex, combinedTexCache, meshes)
             }
         }
 
+        if (meshes.isEmpty()) return null
+
+        // 计算抗离群点（如超大低面数光效面片）的自适应取景包围盒
+        val meshStats = ArrayList<FloatArray>(meshes.size)
+        val highVtxSpans = ArrayList<Float>()
         for (m in meshes) {
+            var mMinX = Float.MAX_VALUE; var mMaxX = -Float.MAX_VALUE
+            var mMinY = Float.MAX_VALUE; var mMaxY = -Float.MAX_VALUE
+            var mMinZ = Float.MAX_VALUE; var mMaxZ = -Float.MAX_VALUE
             var i = 0
             while (i + 8 < m.vertices.size) {
                 val x = m.vertices[i]
                 val y = m.vertices[i + 1]
                 val z = m.vertices[i + 2]
-                if (x < minX) minX = x; if (x > maxX) maxX = x
-                if (y < minY) minY = y; if (y > maxY) maxY = y
-                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
+                if (x < mMinX) mMinX = x; if (x > mMaxX) mMaxX = x
+                if (y < mMinY) mMinY = y; if (y > mMaxY) mMaxY = y
+                if (z < mMinZ) mMinZ = z; if (z > mMaxZ) mMaxZ = z
                 i += 9
+            }
+            if (mMinX <= mMaxX) {
+                val span = max(mMaxX - mMinX, max(mMaxY - mMinY, mMaxZ - mMinZ))
+                val vtxCnt = m.vertices.size / 9
+                meshStats.add(floatArrayOf(mMinX, mMaxX, mMinY, mMaxY, mMinZ, mMaxZ, span, vtxCnt.toFloat()))
+                if (vtxCnt > 8) highVtxSpans.add(span)
             }
         }
 
-        if (meshes.isEmpty()) return null
+        val coreMaxSpan = if (highVtxSpans.isNotEmpty()) {
+            highVtxSpans.maxOrNull() ?: 0f
+        } else 0f
+
+        for (st in meshStats) {
+            val vtxCnt = st[7].toInt()
+            val span = st[6]
+            if (coreMaxSpan > 0f && vtxCnt <= 8 && span > coreMaxSpan * 2.2f) continue
+            if (st[0] < minX) minX = st[0]; if (st[1] > maxX) maxX = st[1]
+            if (st[2] < minY) minY = st[2]; if (st[3] > maxY) maxY = st[3]
+            if (st[4] < minZ) minZ = st[4]; if (st[5] > maxZ) maxZ = st[5]
+        }
+
+        if (minX > maxX) {
+            for (st in meshStats) {
+                if (st[0] < minX) minX = st[0]; if (st[1] > maxX) maxX = st[1]
+                if (st[2] < minY) minY = st[2]; if (st[3] > maxY) maxY = st[3]
+                if (st[4] < minZ) minZ = st[4]; if (st[5] > maxZ) maxZ = st[5]
+            }
+        }
         if (minX > maxX) {
             minX = -1f; maxX = 1f; minY = -1f; maxY = 1f; minZ = -1f; maxZ = 1f
         }
@@ -140,8 +175,9 @@ object CgfxParser {
         data: ByteArray,
         bb: ByteBuffer,
         mOff: Int,
-        textures: List<CgfxTexture>,
+        textures: MutableList<CgfxTexture>,
         texOffsetToIndex: HashMap<Int, Int>,
+        combinedTexCache: HashMap<String, Int>,
         outMeshes: MutableList<CgfxSubMesh>
     ) {
         if (mOff + 0xD0 > data.size) return
@@ -163,7 +199,7 @@ object CgfxParser {
             val matDictAbs = (mOff + 0xC0) + matDictRel
             val matEntries = readDict(data, bb, matDictAbs)
             for ((_, matOff) in matEntries) {
-                matTexIndices.add(resolveMaterialTextureIndex(data, bb, matOff, textures, texOffsetToIndex))
+                matTexIndices.add(resolveMaterialTextureIndex(data, bb, matOff, textures, texOffsetToIndex, combinedTexCache))
             }
         }
 
@@ -199,33 +235,70 @@ object CgfxParser {
         }
     }
 
+    private fun resolveTexMapperByOffset(
+        data: ByteArray,
+        bb: ByteBuffer,
+        matOff: Int,
+        mapperOffset: Int,
+        textures: List<CgfxTexture>
+    ): Int {
+        if (matOff + mapperOffset + 4 > data.size) return -2
+        val tmRel = bb.getInt(matOff + mapperOffset)
+        if (tmRel == 0) return -1
+        if (tmRel !in 0x10..0x4000) return -2
+        val tmOff = matOff + mapperOffset + tmRel
+        if (tmOff + 0x0C > data.size) return -2
+        val trRel = bb.getInt(tmOff + 0x08)
+        if (trRel !in 0x04..0x4000) return -2
+        val trOff = tmOff + 0x08 + trRel
+        if (trOff + 0x1C > data.size) return -2
+        val nameRel = bb.getInt(trOff + 0x18)
+        if (nameRel == 0) return -2
+        val texName = readCString(data, trOff + 0x18 + nameRel)
+        return textures.indexOfFirst { it.name.equals(texName, ignoreCase = true) }
+    }
+
     private fun resolveMaterialTextureIndex(
         data: ByteArray,
         bb: ByteBuffer,
         matOff: Int,
-        textures: List<CgfxTexture>,
-        texOffsetToIndex: HashMap<Int, Int>
+        textures: MutableList<CgfxTexture>,
+        texOffsetToIndex: HashMap<Int, Int>,
+        combinedTexCache: HashMap<String, Int>
     ): Int {
-        // 1. 先检查 MTOB +0x274 (TexMapper 0) -> +0x08 (TexRef) -> +0x18 (Texture Name)
-        if (matOff + 0x278 <= data.size) {
-            val tmRel = bb.getInt(matOff + 0x274)
-            if (tmRel in 0x10..0x4000) {
-                val tmOff = matOff + 0x274 + tmRel
-                if (tmOff + 0x0C <= data.size) {
-                    val trRel = bb.getInt(tmOff + 0x08)
-                    if (trRel in 0x04..0x4000) {
-                        val trOff = tmOff + 0x08 + trRel
-                        if (trOff + 0x1C <= data.size) {
-                            val nameRel = bb.getInt(trOff + 0x18)
-                            if (nameRel != 0) {
-                                val texName = readCString(data, trOff + 0x18 + nameRel)
-                                val byName = textures.indexOfFirst { it.name.equals(texName, ignoreCase = true) }
-                                if (byName >= 0) return byName
-                            }
+        // 1. 先检查 MTOB +0x274 (TexMapper 0) 与 +0x278 (TexMapper 1)
+        val tex0Idx = resolveTexMapperByOffset(data, bb, matOff, 0x274, textures)
+        if (tex0Idx == -1) {
+            // 明确无 TexMapper 0（纯材质着色网格），不强行套用最大贴图
+            return -1
+        }
+        if (tex0Idx >= 0) {
+            val tex1Idx = resolveTexMapperByOffset(data, bb, matOff, 0x278, textures)
+            if (tex1Idx >= 0 && tex1Idx != tex0Idx) {
+                val t0 = textures[tex0Idx]
+                val t1 = textures[tex1Idx]
+                val isT0Opaque = t0.format == 0x1 || t0.format == 0x3 || t0.format == 0xC
+                val isT1Mask = t1.format == 0x7 || t1.format == 0x8 || t1.format == 0xA || t1.format == 0xB
+                if (isT0Opaque && isT1Mask) {
+                    val key = "$tex0Idx+$tex1Idx"
+                    combinedTexCache[key]?.let { return it }
+                    val merged = IntArray(t0.width * t0.height)
+                    for (y in 0 until t0.height) {
+                        val sy = (y * t1.height) / t0.height
+                        for (x in 0 until t0.width) {
+                            val sx = (x * t1.width) / t0.width
+                            val rgb = t0.rgbaPixels[y * t0.width + x] and 0x00FFFFFF
+                            val a = (t1.rgbaPixels[sy * t1.width + sx] ushr 24) and 0xFF
+                            merged[y * t0.width + x] = (a shl 24) or rgb
                         }
                     }
+                    val newIdx = textures.size
+                    textures.add(CgfxTexture("${t0.name}_alpha", t0.width, t0.height, merged, 0x0))
+                    combinedTexCache[key] = newIdx
+                    return newIdx
                 }
             }
+            return tex0Idx
         }
         // 2. 回退扫描直接 TXOB 指针
         if (matOff + 0x130 <= data.size) {
@@ -434,7 +507,7 @@ object CgfxParser {
 
         if (w <= 0 || h <= 0 || w > 1024 || h > 1024 || dataAbs < 0 || dataAbs >= data.size) return null
         val pixels = decode3dsTexture(data, dataAbs, dataSize.coerceAtMost(data.size - dataAbs), w, h, fmtId)
-        return CgfxTexture(name, w, h, pixels)
+        return CgfxTexture(name, w, h, pixels, fmtId)
     }
 
     // Morton Z-order 8x8 tile coordinates
@@ -492,11 +565,42 @@ object CgfxParser {
             return out
         }
 
+        if (fmt == 0xA || fmt == 0xB) {
+            // L4 (0xA) or A4 (0xB): 4 bits per pixel, 32 bytes per 8x8 Morton tile
+            val tilesX = max(1, w / 8)
+            val tilesY = max(1, h / 8)
+            var pos = off
+            val isAlphaOnly = (fmt == 0xB)
+            for (ty in 0 until tilesY) {
+                for (tx in 0 until tilesX) {
+                    for (k in 0 until 64 step 2) {
+                        if (pos >= src.size) break
+                        val b = src[pos++].toInt() and 0xFF
+                        for (sub in 0..1) {
+                            val nib = if (sub == 0) (b and 0xF) else ((b ushr 4) and 0xF)
+                            val v = nib * 17
+                            val t = TILE_ORDER[k + sub]
+                            val px = tx * 8 + (t and 7)
+                            val py = ty * 8 + (t ushr 3)
+                            if (px < w && py < h) {
+                                out[py * w + px] = if (isAlphaOnly) {
+                                    (v shl 24) or 0x00FFFFFF
+                                } else {
+                                    (v shl 24) or (v shl 16) or (v shl 8) or v
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return out
+        }
+
         val bpp = when (fmt) {
             0x0 -> 4 // RGBA8
             0x1 -> 3 // RGB8
             0x2, 0x3, 0x4, 0x5 -> 2 // RGBA5551, RGB565, RGBA4, LA8
-            0x7, 0x8 -> 1 // L8, A8
+            0x7, 0x8, 0x9 -> 1 // L8, A8, LA4
             else -> 2
         }
         val tilesX = max(1, w / 8)
@@ -563,13 +667,19 @@ object CgfxParser {
                 val l = src[pos + 1].toInt() and 0xFF
                 (a shl 24) or (l shl 16) or (l shl 8) or l
             }
-            0x7 -> { // L8
+            0x7 -> { // L8 (带亮度 Alpha 通道，避免黑底遮挡特效)
                 val l = src[pos].toInt() and 0xFF
-                (0xFF shl 24) or (l shl 16) or (l shl 8) or l
+                (l shl 24) or (l shl 16) or (l shl 8) or l
             }
             0x8 -> { // A8
                 val a = src[pos].toInt() and 0xFF
                 (a shl 24) or 0x00FFFFFF
+            }
+            0x9 -> { // LA4
+                val b = src[pos].toInt() and 0xFF
+                val a = (b and 0xF) * 17
+                val l = ((b ushr 4) and 0xF) * 17
+                (a shl 24) or (l shl 16) or (l shl 8) or l
             }
             else -> 0xFFFFFFFF.toInt()
         }
