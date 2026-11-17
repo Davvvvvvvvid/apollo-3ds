@@ -283,13 +283,13 @@ object CgfxParser {
                     if (sp + 4 > data.size) break
                     val sRel = bb.getInt(sp)
                     val sOff = sp + sRel
-                    if (sOff + 0x30 > data.size) continue
+                    if (sOff + 0x34 > data.size) continue
 
                     val usage = bb.getInt(sOff + 0x04) // 0=Pos, 1=Normal, 3=Color, 4=TexCoord0
-                    val glType = bb.getInt(sOff + 0x20) // 0x1400=Byte, 0x1401=UByte, 0x1402=Short, 0x1406=Float
-                    val compCount = bb.getInt(sOff + 0x24).coerceIn(1, 4)
-                    val scale = bb.getFloat(sOff + 0x28)
-                    val elemOffset = bb.getInt(sOff + 0x2C)
+                    val glType = bb.getInt(sOff + 0x24) // 0x1400=Byte, 0x1401=UByte, 0x1402=Short, 0x1406=Float
+                    val compCount = bb.getInt(sOff + 0x28).coerceIn(1, 4)
+                    val scale = bb.getFloat(sOff + 0x2C)
+                    val elemOffset = bb.getInt(sOff + 0x30)
 
                     for (v in 0 until min(vertexCount, curVtxCount)) {
                         val vBase = rawAbs + v * stride + elemOffset
