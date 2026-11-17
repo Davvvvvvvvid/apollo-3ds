@@ -201,6 +201,8 @@ object SpicaCgfxParser {
         // CMDL Local/World Transform (3x4 row-major at +0x54 or +0x84? Wait: LocalMatrix at +0x54, WorldMatrix at +0x84)
         // Only apply if non-identity and finite
         val modelMtx = readTransformMatrix3x4(data, bb, mOff + 0x54)
+        val isSkeletal = (bb.getInt(mOff) and 0x80) != 0
+        val boneWorldMatrices = if (isSkeletal) parseSkeletonWorldMatrices(data, bb, mOff) else emptyList()
 
         val meshCount = bb.getInt(mOff + 0xB4)
         val meshListRel = bb.getInt(mOff + 0xB8)
@@ -247,7 +249,7 @@ object SpicaCgfxParser {
             if (shapeIdx in 0 until shapeCount) {
                 val shapeOff = shapeOffsets[shapeIdx]
                 if (shapeOff > 0) {
-                    parseShape(data, bb, shapeOff, matGlobalIdx, modelMtx, outMeshes)
+                    parseShape(data, bb, shapeOff, matGlobalIdx, modelMtx, boneWorldMatrices, outMeshes)
                 }
             }
         }
@@ -407,7 +409,7 @@ object SpicaCgfxParser {
                     for (s in 0 until 6) {
                         val teOff = fsOff + 0x2C + s * 28
                         val st = stages[s]
-                        st.constIndex = bb.getInt(teOff).coerceIn(0, 5)
+                        st.constIndex = bb.getInt(teOff).coerceIn(0, 10)
                         val cmds = IntArray(6) { k -> bb.getInt(teOff + 4 + k * 4) }
                         readPicaCommands(cmds) { reg, param ->
                             when (reg) {
@@ -459,7 +461,7 @@ object SpicaCgfxParser {
                     val fsCmds = IntArray(6) { k -> bb.getInt(fsOff + 0xDC + k * 4) }
                     readPicaCommands(fsCmds) { reg, param ->
                         when (reg) {
-                            0x00FD -> { // GPUREG_TEXENV_UPDATE_BUFFER
+                            0x00E0 -> { // GPUREG_TEXENV_UPDATE_BUFFER
                                 stages[1].updateColorBuffer = (param and 0x100) != 0
                                 stages[2].updateColorBuffer = (param and 0x200) != 0
                                 stages[3].updateColorBuffer = (param and 0x400) != 0
@@ -469,7 +471,7 @@ object SpicaCgfxParser {
                                 stages[3].updateAlphaBuffer = (param and 0x4000) != 0
                                 stages[4].updateAlphaBuffer = (param and 0x8000) != 0
                             }
-                            0x00E0 -> {
+                            0x00FD -> { // GPUREG_TEXENV_BUFFER_COLOR
                                 texEnvBufColor = floatArrayOf(
                                     (param and 0xFF) / 255f,
                                     ((param ushr 8) and 0xFF) / 255f,
@@ -562,12 +564,65 @@ object SpicaCgfxParser {
         else -> 0x8006
     }
 
+    private fun parseSkeletonWorldMatrices(
+        data: ByteArray,
+        bb: ByteBuffer,
+        mOff: Int
+    ): List<FloatArray?> {
+        if (mOff + 0xE4 > data.size) return emptyList()
+        val skelRel = bb.getInt(mOff + 0xE0)
+        if (skelRel == 0) return emptyList()
+        val skelOff = (mOff + 0xE0) + skelRel
+        if (skelOff < 0 || skelOff + 0x20 > data.size) return emptyList()
+        val bonesDictRel = bb.getInt(skelOff + 0x1C)
+        if (bonesDictRel == 0) return emptyList()
+        val bonesDictOff = (skelOff + 0x1C) + bonesDictRel
+        val entries = CgfxParser.readDict(data, bb, bonesDictOff)
+        if (entries.isEmpty()) return emptyList()
+        val out = MutableList<FloatArray?>(entries.size) { null }
+        for ((_, bo) in entries) {
+            if (bo < 0 || bo + 0xD4 > data.size) continue
+            val idx = bb.getInt(bo + 0x08)
+            if (idx !in out.indices) continue
+            val invW = readTransformMatrix3x4(data, bb, bo + 0xA4) ?: continue
+            out[idx] = invertAffine3x4(invW)
+        }
+        return out
+    }
+
+    private fun invertAffine3x4(m: FloatArray): FloatArray? {
+        if (m.size < 12) return null
+        val a00 = m[0]; val a01 = m[1]; val a02 = m[2]; val tx = m[3]
+        val a10 = m[4]; val a11 = m[5]; val a12 = m[6]; val ty = m[7]
+        val a20 = m[8]; val a21 = m[9]; val a22 = m[10]; val tz = m[11]
+        val c00 = a11 * a22 - a12 * a21
+        val c01 = -(a10 * a22 - a12 * a20)
+        val c02 = a10 * a21 - a11 * a20
+        val det = a00 * c00 + a01 * c01 + a02 * c02
+        if (kotlin.math.abs(det) < 1e-8f) return null
+        val invDet = 1f / det
+        val r00 = c00 * invDet
+        val r01 = (a02 * a21 - a01 * a22) * invDet
+        val r02 = (a01 * a12 - a02 * a11) * invDet
+        val r10 = c01 * invDet
+        val r11 = (a00 * a22 - a02 * a20) * invDet
+        val r12 = (a02 * a10 - a00 * a12) * invDet
+        val r20 = c02 * invDet
+        val r21 = (a01 * a20 - a00 * a21) * invDet
+        val r22 = (a00 * a11 - a01 * a10) * invDet
+        val itx = -(r00 * tx + r01 * ty + r02 * tz)
+        val ity = -(r10 * tx + r11 * ty + r12 * tz)
+        val itz = -(r20 * tx + r21 * ty + r22 * tz)
+        return floatArrayOf(r00, r01, r02, itx, r10, r11, r12, ity, r20, r21, r22, itz)
+    }
+
     private fun parseShape(
         data: ByteArray,
         bb: ByteBuffer,
         shapeOff: Int,
         matIndex: Int,
         modelMtx: FloatArray?,
+        boneWorldMatrices: List<FloatArray?>,
         outMeshes: MutableList<SpicaSubMesh>
     ) {
         if (shapeOff + 0x48 > data.size) return
@@ -585,6 +640,7 @@ object SpicaCgfxParser {
         var uv0Data: FloatArray? = null
         var uv1Data: FloatArray? = null
         var colData: FloatArray? = null
+        var boneIdxData: IntArray? = null
         var fixedCol: FloatArray? = null
         var vertexCount = 0
 
@@ -636,6 +692,10 @@ object SpicaCgfxParser {
                                 3 -> if (c < 4) colData[v * 4 + c] = valF
                                 4 -> if (c < 2) uv0Data[v * 2 + c] = if (c == 1) 1f - valF else valF
                                 5 -> if (c < 2) uv1Data[v * 2 + c] = if (c == 1) 1f - valF else valF
+                                7 -> if (c == 0) {
+                                    if (boneIdxData == null) boneIdxData = IntArray(vertexCount)
+                                    boneIdxData[v] = valF.toInt()
+                                }
                             }
                         }
                     }
@@ -660,28 +720,19 @@ object SpicaCgfxParser {
 
         if (posData == null || vertexCount <= 0) return
 
-        val interleaved = FloatArray(vertexCount * 11)
+        val baseInterleaved = FloatArray(vertexCount * 11)
         for (v in 0 until vertexCount) {
-            var x = posData[v * 3 + 0]
-            var y = posData[v * 3 + 1]
-            var z = posData[v * 3 + 2]
-            if (modelMtx != null) {
-                val tx = modelMtx[0] * x + modelMtx[1] * y + modelMtx[2] * z + modelMtx[3]
-                val ty = modelMtx[4] * x + modelMtx[5] * y + modelMtx[6] * z + modelMtx[7]
-                val tz = modelMtx[8] * x + modelMtx[9] * y + modelMtx[10] * z + modelMtx[11]
-                x = tx; y = ty; z = tz
-            }
-            interleaved[v * 11 + 0] = x
-            interleaved[v * 11 + 1] = y
-            interleaved[v * 11 + 2] = z
-            interleaved[v * 11 + 3] = uv0Data?.getOrNull(v * 2 + 0) ?: 0f
-            interleaved[v * 11 + 4] = uv0Data?.getOrNull(v * 2 + 1) ?: 0f
-            interleaved[v * 11 + 5] = uv1Data?.getOrNull(v * 2 + 0) ?: (uv0Data?.getOrNull(v * 2 + 0) ?: 0f)
-            interleaved[v * 11 + 6] = uv1Data?.getOrNull(v * 2 + 1) ?: (uv0Data?.getOrNull(v * 2 + 1) ?: 0f)
-            interleaved[v * 11 + 7] = fixedCol?.get(0) ?: colData?.getOrNull(v * 4 + 0) ?: 1f
-            interleaved[v * 11 + 8] = fixedCol?.get(1) ?: colData?.getOrNull(v * 4 + 1) ?: 1f
-            interleaved[v * 11 + 9] = fixedCol?.get(2) ?: colData?.getOrNull(v * 4 + 2) ?: 1f
-            interleaved[v * 11 + 10] = fixedCol?.get(3) ?: colData?.getOrNull(v * 4 + 3) ?: 1f
+            baseInterleaved[v * 11 + 0] = posData[v * 3 + 0]
+            baseInterleaved[v * 11 + 1] = posData[v * 3 + 1]
+            baseInterleaved[v * 11 + 2] = posData[v * 3 + 2]
+            baseInterleaved[v * 11 + 3] = uv0Data?.getOrNull(v * 2 + 0) ?: 0f
+            baseInterleaved[v * 11 + 4] = uv0Data?.getOrNull(v * 2 + 1) ?: 0f
+            baseInterleaved[v * 11 + 5] = uv1Data?.getOrNull(v * 2 + 0) ?: (uv0Data?.getOrNull(v * 2 + 0) ?: 0f)
+            baseInterleaved[v * 11 + 6] = uv1Data?.getOrNull(v * 2 + 1) ?: (uv0Data?.getOrNull(v * 2 + 1) ?: 0f)
+            baseInterleaved[v * 11 + 7] = fixedCol?.get(0) ?: colData?.getOrNull(v * 4 + 0) ?: 1f
+            baseInterleaved[v * 11 + 8] = fixedCol?.get(1) ?: colData?.getOrNull(v * 4 + 1) ?: 1f
+            baseInterleaved[v * 11 + 9] = fixedCol?.get(2) ?: colData?.getOrNull(v * 4 + 2) ?: 1f
+            baseInterleaved[v * 11 + 10] = fixedCol?.get(3) ?: colData?.getOrNull(v * 4 + 3) ?: 1f
         }
 
         for (fIdx in 0 until faceCount) {
@@ -690,6 +741,49 @@ object SpicaCgfxParser {
             val fRel = bb.getInt(fp)
             val fOff = fp + fRel
             if (fOff + 0x18 > data.size) continue
+
+            val boneIndicesCount = bb.getInt(fOff)
+            val boneIndicesRel = bb.getInt(fOff + 4)
+            val skinning = bb.getInt(fOff + 8) // 0=None, 1=Rigid, 2=Smooth
+            val boneIndices = if (boneIndicesCount in 1..64 && boneIndicesRel != 0) {
+                val arrAbs = (fOff + 4) + boneIndicesRel
+                if (arrAbs >= 0 && arrAbs + boneIndicesCount * 4 <= data.size) {
+                    IntArray(boneIndicesCount) { k -> bb.getInt(arrAbs + k * 4) }
+                } else IntArray(0)
+            } else IntArray(0)
+
+            val needBone = skinning != 2 && boneIndices.isNotEmpty() && boneWorldMatrices.isNotEmpty()
+            val interleaved = if (!needBone && modelMtx == null) {
+                baseInterleaved
+            } else {
+                val copy = baseInterleaved.copyOf()
+                for (v in 0 until vertexCount) {
+                    var x = copy[v * 11 + 0]
+                    var y = copy[v * 11 + 1]
+                    var z = copy[v * 11 + 2]
+                    if (needBone) {
+                        val bLocal = boneIdxData?.getOrNull(v) ?: 0
+                        val bGlobal = boneIndices.getOrNull(bLocal) ?: boneIndices[0]
+                        val bm = boneWorldMatrices.getOrNull(bGlobal)
+                        if (bm != null) {
+                            val bx = bm[0] * x + bm[1] * y + bm[2] * z + bm[3]
+                            val by = bm[4] * x + bm[5] * y + bm[6] * z + bm[7]
+                            val bz = bm[8] * x + bm[9] * y + bm[10] * z + bm[11]
+                            x = bx; y = by; z = bz
+                        }
+                    }
+                    if (modelMtx != null) {
+                        val tx = modelMtx[0] * x + modelMtx[1] * y + modelMtx[2] * z + modelMtx[3]
+                        val ty = modelMtx[4] * x + modelMtx[5] * y + modelMtx[6] * z + modelMtx[7]
+                        val tz = modelMtx[8] * x + modelMtx[9] * y + modelMtx[10] * z + modelMtx[11]
+                        x = tx; y = ty; z = tz
+                    }
+                    copy[v * 11 + 0] = x
+                    copy[v * 11 + 1] = y
+                    copy[v * 11 + 2] = z
+                }
+                copy
+            }
 
             val idxStreamCount = bb.getInt(fOff + 0x0C)
             val idxStreamListRel = bb.getInt(fOff + 0x10)
@@ -783,14 +877,20 @@ object SpicaCgfxParser {
         sb.appendLine("    vec4 Previous = vec4(1.0);")
         sb.appendLine("    vec4 Output = vec4(1.0);")
         sb.appendLine("    vec4 CombBuffer = vec4(${bc[0]}, ${bc[1]}, ${bc[2]}, ${bc[3]});")
-        sb.appendLine("    vec4 FragPriColor = vec4(clamp(uEmission.rgb + uAmbient.rgb + uDiffuse.rgb * 0.65, 0.0, 1.0), 1.0);")
+        sb.appendLine("    vec4 FragPriColor = vec4(clamp(uEmission.rgb + uAmbient.rgb * 0.45 + uDiffuse.rgb * 0.55, 0.0, 1.0), 1.0);")
         sb.appendLine("    vec4 FragSecColor = vec4(0.0, 0.0, 0.0, 1.0);")
 
         mat.texEnvStages.forEachIndexed { idx, st ->
             val hasColor = !st.isColorPassThrough()
             val hasAlpha = !st.isAlphaPassThrough()
             if (hasColor || hasAlpha) {
-                val constName = "uConstant${st.constIndex.coerceIn(0, 5)}"
+                val constName = when (st.constIndex) {
+                    in 0..5 -> "uConstant${st.constIndex}"
+                    6 -> "uEmission"
+                    7 -> "uAmbient"
+                    8 -> "uDiffuse"
+                    else -> "vec4(0.0, 0.0, 0.0, 1.0)"
+                }
                 val cArgs = Array(3) { p ->
                     var arg = srcExpr(st.srcColor[p], constName)
                     when (st.opColor[p] and 0xE) {
