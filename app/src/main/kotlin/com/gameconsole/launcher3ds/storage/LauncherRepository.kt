@@ -2545,13 +2545,12 @@ class LauncherRepository(private val context: Context) {
         clearValidityCaches()
         cachedMediaLibraries = null
         onProgress?.invoke(5, "正在检测存储介质与 ROM 目录...", "扫描内置存储与 SD 卡挂载目录")
-        val isTargetedCustomScan = !customDir.isNullOrBlank()
-        if (isTargetedCustomScan) {
-            addCustomRomDir(customDir!!)
+        if (!customDir.isNullOrBlank()) {
+            addCustomRomDir(customDir)
             lastMountedMediaDir = customDir
         }
-        val dirsToScan = if (isTargetedCustomScan) {
-            listOf(customDir!!)
+        val dirsToScan = if (!customDir.isNullOrBlank()) {
+            (listOf(customDir) + getCustomRomDirs(includeStorageRoots = true)).distinct()
         } else {
             getCustomRomDirs(includeStorageRoots = true)
         }
@@ -2576,19 +2575,23 @@ class LauncherRepository(private val context: Context) {
             "zip", "7z"
         )
         val foundRomFiles = LinkedHashSet<File>()
+        val visitedDirs = HashSet<String>()
         for (dirPath in dirsToScan) {
             val dir = File(dirPath)
             if (dir.exists() && dir.isDirectory) {
-                collectRomFiles(dir, validExtensions, foundRomFiles, maxDepth = 4)
+                collectRomFiles(dir, validExtensions, foundRomFiles, maxDepth = 4, visitedDirs = visitedDirs)
+                if (dir.name.equals("media", ignoreCase = true)) {
+                    dir.parentFile?.let { parent ->
+                        if (parent.exists() && parent.isDirectory) {
+                            collectRomFiles(parent, validExtensions, foundRomFiles, maxDepth = 2, visitedDirs = visitedDirs)
+                        }
+                    }
+                }
             }
         }
-        // 仅在全盘全量扫描（未指定具体单一目录）时，补充检测未覆盖的存储根目录，绝不重复遍历
-        if (!isTargetedCustomScan) {
-            for (root in getActiveStorageRoots()) {
-                val alreadyCovered = dirsToScan.any { it.equals(root.absolutePath, ignoreCase = true) }
-                if (!alreadyCovered && root.exists() && root.isDirectory) {
-                    collectRomFiles(root, validExtensions, foundRomFiles, maxDepth = 4)
-                }
+        for (root in getActiveStorageRoots()) {
+            if (root.exists() && root.isDirectory) {
+                collectRomFiles(root, validExtensions, foundRomFiles, maxDepth = 4, visitedDirs = visitedDirs)
             }
         }
 
@@ -2606,7 +2609,7 @@ class LauncherRepository(private val context: Context) {
 
         // 2. 搜寻所有包含 <游戏名>/{boxFront.png, logo.png, video.mp4} 的 media 目录 (自动排除用户已禁用的媒体库)
         val disabledLibs = getDisabledMediaLibs().map { it.replace("\\", "/").trimEnd('/').lowercase() }
-        val mediaContainers = findMediaContainerDirs(dirsToScan, forceRefresh = isTargetedCustomScan).filter { container ->
+        val mediaContainers = findMediaContainerDirs(dirsToScan, forceRefresh = true).filter { container ->
             val norm = container.absolutePath.replace("\\", "/").trimEnd('/').lowercase()
             !disabledLibs.any { disabled -> norm.startsWith(disabled) }
         }
@@ -3040,8 +3043,15 @@ class LauncherRepository(private val context: Context) {
         }
     }
 
-    private fun collectRomFiles(dir: File, exts: Set<String>, out: MutableCollection<File>, maxDepth: Int) {
+    private fun collectRomFiles(
+        dir: File,
+        exts: Set<String>,
+        out: MutableCollection<File>,
+        maxDepth: Int,
+        visitedDirs: MutableSet<String> = HashSet()
+    ) {
         if (maxDepth < 0 || out.size >= 5000) return
+        if (!visitedDirs.add(dir.absolutePath)) return
         val children = dir.listFiles() ?: return
         for (child in children) {
             if (child.name.startsWith(".")) continue
@@ -3064,7 +3074,7 @@ class LauncherRepository(private val context: Context) {
                 !child.name.equals("Podcasts", ignoreCase = true) &&
                 !child.name.equals("Tencent", ignoreCase = true)
             ) {
-                collectRomFiles(child, exts, out, maxDepth - 1)
+                collectRomFiles(child, exts, out, maxDepth - 1, visitedDirs)
             }
         }
     }
