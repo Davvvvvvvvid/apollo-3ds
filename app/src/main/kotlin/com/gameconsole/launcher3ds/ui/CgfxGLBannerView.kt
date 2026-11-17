@@ -204,11 +204,11 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
         }
 
         private fun initGl() {
-            GLES20.glClearColor(0.05f, 0.08f, 0.14f, 1.0f)
+            GLES20.glClearColor(0f, 0f, 0f, 0f)
             GLES20.glDisable(GLES20.GL_CULL_FACE)
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
             GLES20.glEnable(GLES20.GL_BLEND)
-            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
 
             val vs = """
                 uniform mat4 uMvp;
@@ -234,7 +234,7 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
                     vec4 texCol = uHasTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
                     vec4 outCol = texCol * vCol;
                     if (outCol.a < 0.02) discard;
-                    gl_FragColor = outCol;
+                    gl_FragColor = vec4(outCol.rgb * outCol.a, outCol.a);
                 }
             """.trimIndent()
 
@@ -263,13 +263,13 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
             val spanY = (scene.maxY - scene.minY).coerceAtLeast(0.01f)
             val spanZ = (scene.maxZ - scene.minZ).coerceAtLeast(0.01f)
             val maxSpan = max(spanX, max(spanY, spanZ))
-            val normScale = (2.15f / maxSpan) * popScale
+            val normScale = (3.15f / maxSpan) * popScale
 
             val swayYaw = sin(elapsedSec * 1.15f) * 14f + parallaxX * 10f
             val swayPitch = cos(elapsedSec * 0.85f) * 4.5f + parallaxY * 6f
-            val floatY = sin(elapsedSec * 1.7f) * 0.04f
+            val floatY = sin(elapsedSec * 1.7f) * 0.045f
 
-            Matrix.setLookAtM(viewMatrix, 0, 0f, 0.15f, 4.2f, 0f, 0f, 0f, 0f, 1f, 0f)
+            Matrix.setLookAtM(viewMatrix, 0, 0f, 0.22f, 3.65f, 0f, -0.04f, 0f, 0f, 1f, 0f)
             Matrix.multiplyMM(vpMatrix, 0, projMatrix, 0, viewMatrix, 0)
 
             Matrix.setIdentityM(modelMatrix, 0)

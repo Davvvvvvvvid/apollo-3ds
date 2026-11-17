@@ -1126,33 +1126,35 @@ class UpperScreenView @JvmOverloads constructor(
         // 在视频画面之上叠加：实时画面滤镜纹理、玻璃镜面光泽、LIVE VIDEO 徽标以及前景 3D 视差悬浮的透明游戏官方 Logo (logo.png)
         val item = selectedSlot
         if (isStageApplet(activeApplet) && item != null && item.type != PlatformType.EMPTY && !currentScreenAbsRect.isEmpty) {
-            // 1) 视频屏实时画面滤镜叠加层（扫描线 / 3DS 液晶点阵 / 复古色调暗角等）+ 顶部镜面玻璃光泽
-            canvas.save()
-            clipPath.reset()
-            clipPath.addRoundRect(currentScreenAbsRect, 13f, 13f, Path.Direction.CW)
-            canvas.clipPath(clipPath)
+            val isCgfxVisible = isCgfxBannerActive && !isVideoFrameReady && cgfxBannerView.visibility == View.VISIBLE
+            // 1) 视频屏实时画面滤镜叠加层（扫描线 / 3DS 液晶点阵 / 复古色调暗角等）+ 顶部镜面玻璃光泽（原机悬浮3D横幅不画电视反光框）
+            if (!isCgfxVisible) {
+                canvas.save()
+                clipPath.reset()
+                clipPath.addRoundRect(currentScreenAbsRect, 13f, 13f, Path.Direction.CW)
+                canvas.clipPath(clipPath)
 
-            drawVideoFilterOverlay(canvas, currentScreenAbsRect)
+                drawVideoFilterOverlay(canvas, currentScreenAbsRect)
 
-            paint.style = Paint.Style.FILL
-            paint.shader = LinearGradient(
-                0f, currentScreenAbsRect.top, 0f, currentScreenAbsRect.top + currentScreenAbsRect.height() * 0.24f,
-                Color.argb(40, 255, 255, 255),
-                Color.TRANSPARENT,
-                Shader.TileMode.CLAMP
-            )
-            canvas.drawRect(
-                currentScreenAbsRect.left,
-                currentScreenAbsRect.top,
-                currentScreenAbsRect.right,
-                currentScreenAbsRect.top + currentScreenAbsRect.height() * 0.24f,
-                paint
-            )
-            paint.shader = null
-            canvas.restore()
+                paint.style = Paint.Style.FILL
+                paint.shader = LinearGradient(
+                    0f, currentScreenAbsRect.top, 0f, currentScreenAbsRect.top + currentScreenAbsRect.height() * 0.24f,
+                    Color.argb(40, 255, 255, 255),
+                    Color.TRANSPARENT,
+                    Shader.TileMode.CLAMP
+                )
+                canvas.drawRect(
+                    currentScreenAbsRect.left,
+                    currentScreenAbsRect.top,
+                    currentScreenAbsRect.right,
+                    currentScreenAbsRect.top + currentScreenAbsRect.height() * 0.24f,
+                    paint
+                )
+                paint.shader = null
+                canvas.restore()
+            }
 
             // 2) 若当前正在播放实机预览视频 (video.mp4) 或 3D 横幅动效，或开启了滤镜，在预览窗右上角绘制微标
-            val isCgfxVisible = isCgfxBannerActive && !isVideoFrameReady && cgfxBannerView.visibility == View.VISIBLE
             if ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || isCgfxVisible || videoFilter != VideoFilterType.NONE) {
                 val isShowingCgfx = isCgfxVisible
                 val isShowingBanner = isShowingCgfx || (item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank()))
@@ -2219,6 +2221,13 @@ class UpperScreenView @JvmOverloads constructor(
                     boxH = boxW / heroAspect
                 }
                 gapBetween = stageH * 0.045f
+            } else if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && isCgfxBannerActive && !isVideoFrameReady) {
+                // 3DS 原系统悬浮 3D 横幅：无边框全视野悬浮舞台
+                boxW = 0f
+                boxH = 0f
+                gapBetween = 0f
+                screenH = (stageH * 1.16f).coerceAtMost(h - topBarH - 12f)
+                screenW = w * 0.90f
             } else {
                 // 纯净大屏影院模式：左侧组件隐藏，右侧屏幕自动居中放大
                 boxW = 0f
@@ -2506,101 +2515,106 @@ class UpperScreenView @JvmOverloads constructor(
                 canvas.restore()
             }
 
-            // 2. 右侧：大幅放大的影院级实机游戏画面/视频预览屏
-            val bezelPad = 7f
-            val outerScreen = RectF(
-                screenRect.left - bezelPad,
-                screenRect.top - bezelPad,
-                screenRect.right + bezelPad,
-                screenRect.bottom + bezelPad
-            )
-            paint.color = Color.argb(85, 12, 20, 32)
-            canvas.drawRoundRect(
-                RectF(outerScreen.left + 4f, outerScreen.top + 8f, outerScreen.right + 4f, outerScreen.bottom + 8f),
-                22f,
-                22f,
-                paint
-            )
-            paint.color = Color.WHITE
-            canvas.drawRoundRect(outerScreen, 20f, 20f, paint)
-
-            canvas.save()
-            clipPath.reset()
-            clipPath.addRoundRect(screenRect, 14f, 14f, Path.Direction.CW)
-            canvas.clipPath(clipPath)
-
-            // 当视频尚未首帧就绪或无视频时，判断是否具备视频预览
+            // 2. 右侧：大幅放大的影院级实机游戏画面/视频预览屏（若是 3DS 原系统悬浮 CGFX，则去掉白框与黑底直接悬浮于主题天空之上）
             val hasCgfx3d = isCgfxBannerActive || (is3dsSlot(item) && item.cgfxPath.isNotBlank() && !item.cgfxPath.startsWith("asset://"))
-            val hasVideoPreview = (item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank() || hasCgfx3d) &&
-                    isVideoPreviewEnabled &&
-                    upperDisplayMode != UpperDisplayMode.LOGO_ONLY &&
-                    upperDisplayMode != UpperDisplayMode.LOGO_TITLE
+            val isPure3dsFloatingCgfx = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) &&
+                    !isVideoFrameReady && hasCgfx3d
 
-            if (hasVideoPreview) {
-                // 有视频预览：电视屏幕保持纯净深黑屏幕底色，静待视频首帧秒出，绝不闪现2D封面
-                paint.color = Color.BLACK
-                canvas.drawRect(screenRect, paint)
-            } else {
-                // 仅在游戏完全没有视频预览时，才回退显示静态艺术截图或封面+Logo
-                bitmapPaint.colorFilter = activeVideoColorFilter
-                if (previewBmp != null) {
-                    val norm = item.getEffectivePlatform().uppercase().trim()
-                    val is3dsOrNds = (item.type == PlatformType.N3DS || item.type == PlatformType.NDS ||
-                            norm == "3DS" || norm == "N3DS" || norm == "NDS" || norm == "DS")
-                    if (is3dsOrNds && previewBmp.height > previewBmp.width) {
-                        // 同样针对 3DS / NDS 竖版截图：只截取并显示上半部分（上屏画面）
-                        val srcRect = Rect(0, 0, previewBmp.width, previewBmp.height / 2)
-                        canvas.drawBitmap(previewBmp, srcRect, screenRect, bitmapPaint)
-                    } else {
-                        canvas.drawBitmap(previewBmp, null, screenRect, bitmapPaint)
-                    }
-                } else {
-                    paint.shader = LinearGradient(
-                        screenRect.left, screenRect.top, screenRect.right, screenRect.bottom,
-                        blendColor(item.primaryColor, Color.BLACK, 0.45f),
-                        blendColor(item.secondaryColor, Color.BLACK, 0.72f),
-                        Shader.TileMode.CLAMP
-                    )
+            if (!isPure3dsFloatingCgfx) {
+                val bezelPad = 7f
+                val outerScreen = RectF(
+                    screenRect.left - bezelPad,
+                    screenRect.top - bezelPad,
+                    screenRect.right + bezelPad,
+                    screenRect.bottom + bezelPad
+                )
+                paint.color = Color.argb(85, 12, 20, 32)
+                canvas.drawRoundRect(
+                    RectF(outerScreen.left + 4f, outerScreen.top + 8f, outerScreen.right + 4f, outerScreen.bottom + 8f),
+                    22f,
+                    22f,
+                    paint
+                )
+                paint.color = Color.WHITE
+                canvas.drawRoundRect(outerScreen, 20f, 20f, paint)
+
+                canvas.save()
+                clipPath.reset()
+                clipPath.addRoundRect(screenRect, 14f, 14f, Path.Direction.CW)
+                canvas.clipPath(clipPath)
+
+                // 当视频尚未首帧就绪或无视频时，判断是否具备视频预览
+                val hasVideoPreview = (item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank() || hasCgfx3d) &&
+                        isVideoPreviewEnabled &&
+                        upperDisplayMode != UpperDisplayMode.LOGO_ONLY &&
+                        upperDisplayMode != UpperDisplayMode.LOGO_TITLE
+
+                if (hasVideoPreview) {
+                    // 有视频预览：电视屏幕保持纯净深黑屏幕底色，静待视频首帧秒出，绝不闪现2D封面
+                    paint.color = Color.BLACK
                     canvas.drawRect(screenRect, paint)
-                    paint.shader = null
-
-                    if (boxBmp != null) {
-                        bitmapPaint.alpha = 85
-                        canvas.drawBitmap(boxBmp, null, screenRect, bitmapPaint)
-                        bitmapPaint.alpha = 255
-                    }
-                    if (logoBmp != null) {
-                        val maxLW = screenRect.width() * 0.78f
-                        val maxLH = screenRect.height() * 0.62f
-                        val aspect = logoBmp.width.toFloat().coerceAtLeast(1f) / logoBmp.height.toFloat().coerceAtLeast(1f)
-                        var lW = maxLW
-                        var lH = lW / aspect
-                        if (lH > maxLH) {
-                            lH = maxLH
-                            lW = lH * aspect
+                } else {
+                    // 仅在游戏完全没有视频预览时，才回退显示静态艺术截图或封面+Logo
+                    bitmapPaint.colorFilter = activeVideoColorFilter
+                    if (previewBmp != null) {
+                        val norm = item.getEffectivePlatform().uppercase().trim()
+                        val is3dsOrNds = (item.type == PlatformType.N3DS || item.type == PlatformType.NDS ||
+                                norm == "3DS" || norm == "N3DS" || norm == "NDS" || norm == "DS")
+                        if (is3dsOrNds && previewBmp.height > previewBmp.width) {
+                            // 同样针对 3DS / NDS 竖版截图：只截取并显示上半部分（上屏画面）
+                            val srcRect = Rect(0, 0, previewBmp.width, previewBmp.height / 2)
+                            canvas.drawBitmap(previewBmp, srcRect, screenRect, bitmapPaint)
+                        } else {
+                            canvas.drawBitmap(previewBmp, null, screenRect, bitmapPaint)
                         }
-                        val lRect = RectF(
-                            screenRect.centerX() - lW / 2f,
-                            screenRect.centerY() - lH / 2f,
-                            screenRect.centerX() + lW / 2f,
-                            screenRect.centerY() + lH / 2f
+                    } else {
+                        paint.shader = LinearGradient(
+                            screenRect.left, screenRect.top, screenRect.right, screenRect.bottom,
+                            blendColor(item.primaryColor, Color.BLACK, 0.45f),
+                            blendColor(item.secondaryColor, Color.BLACK, 0.72f),
+                            Shader.TileMode.CLAMP
                         )
-                        canvas.drawBitmap(logoBmp, null, lRect, bitmapPaint)
-                    }
-                }
-                bitmapPaint.colorFilter = null
-            }
+                        canvas.drawRect(screenRect, paint)
+                        paint.shader = null
 
-            // 顶部极轻的玻璃光泽（不遮挡任何画面内容）
-            paint.shader = LinearGradient(
-                0f, screenRect.top, 0f, screenRect.top + screenH * 0.25f,
-                Color.argb(42, 255, 255, 255),
-                Color.TRANSPARENT,
-                Shader.TileMode.CLAMP
-            )
-            canvas.drawRect(screenRect.left, screenRect.top, screenRect.right, screenRect.top + screenH * 0.25f, paint)
-            paint.shader = null
-            canvas.restore()
+                        if (boxBmp != null) {
+                            bitmapPaint.alpha = 85
+                            canvas.drawBitmap(boxBmp, null, screenRect, bitmapPaint)
+                            bitmapPaint.alpha = 255
+                        }
+                        if (logoBmp != null) {
+                            val maxLW = screenRect.width() * 0.78f
+                            val maxLH = screenRect.height() * 0.62f
+                            val aspect = logoBmp.width.toFloat().coerceAtLeast(1f) / logoBmp.height.toFloat().coerceAtLeast(1f)
+                            var lW = maxLW
+                            var lH = lW / aspect
+                            if (lH > maxLH) {
+                                lH = maxLH
+                                lW = lH * aspect
+                            }
+                            val lRect = RectF(
+                                screenRect.centerX() - lW / 2f,
+                                screenRect.centerY() - lH / 2f,
+                                screenRect.centerX() + lW / 2f,
+                                screenRect.centerY() + lH / 2f
+                            )
+                            canvas.drawBitmap(logoBmp, null, lRect, bitmapPaint)
+                        }
+                    }
+                    bitmapPaint.colorFilter = null
+                }
+
+                // 顶部极轻的玻璃光泽（不遮挡任何画面内容）
+                paint.shader = LinearGradient(
+                    0f, screenRect.top, 0f, screenRect.top + screenH * 0.25f,
+                    Color.argb(42, 255, 255, 255),
+                    Color.TRANSPARENT,
+                    Shader.TileMode.CLAMP
+                )
+                canvas.drawRect(screenRect.left, screenRect.top, screenRect.right, screenRect.top + screenH * 0.25f, paint)
+                paint.shader = null
+                canvas.restore()
+            }
 
             canvas.restore()
         } else {
