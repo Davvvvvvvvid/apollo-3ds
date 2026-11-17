@@ -424,8 +424,9 @@ object CgfxParser {
 
     private fun parseTxob(data: ByteArray, bb: ByteBuffer, tOff: Int, name: String): CgfxTexture? {
         if (tOff + 0x50 > data.size) return null
-        val w = bb.getInt(tOff + 0x18)
-        val h = bb.getInt(tOff + 0x1C)
+        // CGFX TXOB (ImageTextureCtr): +0x18 is Height, +0x1C is Width
+        val h = bb.getInt(tOff + 0x18)
+        val w = bb.getInt(tOff + 0x1C)
         val fmtId = bb.getInt(tOff + 0x34)
         val dataSize = bb.getInt(tOff + 0x44)
         val dataRel = bb.getInt(tOff + 0x48)
