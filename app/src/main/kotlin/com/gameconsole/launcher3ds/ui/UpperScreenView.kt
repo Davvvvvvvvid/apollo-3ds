@@ -413,6 +413,8 @@ class UpperScreenView @JvmOverloads constructor(
     private val cgfxBannerView: CgfxGLBannerView
     @Volatile
     private var isCgfxBannerActive: Boolean = false
+    @Volatile
+    private var isCgfxFallbackLogo: Boolean = false
     private var currentCgfxKey: String = ""
     private val cgfxSceneCache = android.util.LruCache<String, com.gameconsole.launcher3ds.parser.CgfxParser.CgfxScene>(6)
     private var videoSurface: Surface? = null
@@ -766,6 +768,7 @@ class UpperScreenView @JvmOverloads constructor(
         val isPureLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
         if (item == null || !isHostResumed || isPureLogoMode || !isStageApplet(activeApplet)) {
             isCgfxBannerActive = false
+            isCgfxFallbackLogo = false
             cgfxBannerView.visibility = View.GONE
             return
         }
@@ -778,9 +781,11 @@ class UpperScreenView @JvmOverloads constructor(
         }
         if (hasVideoOverride || !is3dsSlot(item)) {
             isCgfxBannerActive = false
+            isCgfxFallbackLogo = isSystem3dsMode && !hasVideoOverride
             cgfxBannerView.visibility = View.GONE
             return
         }
+        isCgfxFallbackLogo = false
 
         val targetId = item.id
         imageExecutor.execute {
@@ -798,11 +803,12 @@ class UpperScreenView @JvmOverloads constructor(
                         }
                     }
                 }
-                if (cgfxPath.isBlank() || cgfxPath.startsWith("asset://")) return@execute
-                val scene = cgfxSceneCache.get(cgfxPath)
-                    ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseFile(File(cgfxPath))?.also {
-                        cgfxSceneCache.put(cgfxPath, it)
-                    }
+                val scene = if (cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+                    cgfxSceneCache.get(cgfxPath)
+                        ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseFile(File(cgfxPath))?.also {
+                            cgfxSceneCache.put(cgfxPath, it)
+                        }
+                } else null
 
                 post {
                     if (selectedSlot?.id == targetId && isHostResumed &&
@@ -817,7 +823,14 @@ class UpperScreenView @JvmOverloads constructor(
                             }
                             currentCgfxKey = cgfxPath
                             cgfxBannerView.setScene(scene)
+                            isCgfxFallbackLogo = false
                             isCgfxBannerActive = true
+                            invalidate()
+                        } else if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
+                            // 未提取到有效 3D 横幅元素时，自动回退为居中 Logo 图片模式
+                            isCgfxBannerActive = false
+                            isCgfxFallbackLogo = true
+                            cgfxBannerView.visibility = View.GONE
                             invalidate()
                         }
                         if (wavPath.isNotBlank()) {
@@ -826,6 +839,14 @@ class UpperScreenView @JvmOverloads constructor(
                     }
                 }
             } catch (_: Throwable) {
+                post {
+                    if (selectedSlot?.id == targetId && upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
+                        isCgfxBannerActive = false
+                        isCgfxFallbackLogo = true
+                        cgfxBannerView.visibility = View.GONE
+                        invalidate()
+                    }
+                }
             }
         }
     }
@@ -1104,7 +1125,8 @@ class UpperScreenView @JvmOverloads constructor(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
+        val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive && !isVideoFrameReady && isCgfxFallbackLogo
+        val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE || isCgfxFallbackLogoMode)
         if (isCenteredLogoMode || !isVideoPreviewEnabled) {
             videoTextureView.alpha = 0f
             videoTextureView.translationX = -9999f
@@ -2046,13 +2068,15 @@ class UpperScreenView @JvmOverloads constructor(
                 return
             }
 
-            val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
+            val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive && !isVideoFrameReady && isCgfxFallbackLogo
+            val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE || isCgfxFallbackLogoMode)
             if (isCenteredLogoMode) {
-                // 👑 居中 Logo 展台：支持「纯Logo极简」与「Logo+纯文字标题」
+                // 👑 居中 Logo 展台：支持「纯Logo极简」、「Logo+纯文字标题」以及未提取到 3D Banner 时的自动回退
+                val showLogoWithTitle = (upperDisplayMode == UpperDisplayMode.LOGO_TITLE || isCgfxFallbackLogoMode)
                 val logoBmp = resolveSlotLogo(item) ?: resolveSlotBoxart(item) ?: resolveSlotIcon(item)
                 val cx = stageCenterX + tiltX * 0.4f
                 val floatHeroY = kotlin.math.sin((animPhase + 0.35f) * 1.35f) * 8f
-                val cyOffset = if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) -h * 0.055f else 0f
+                val cyOffset = if (showLogoWithTitle) -h * 0.055f else 0f
                 val cy = stageCenterY + cyOffset + floatHeroY
                 val curRotX = (boxRotAngleX * 0.40f + totalTiltY * 0.25f).coerceIn(-20f, 20f)
 
@@ -2064,7 +2088,7 @@ class UpperScreenView @JvmOverloads constructor(
 
                 if (logoBmp != null) {
                     val maxLogoW = (w * 0.72f).coerceIn(420f, w * 0.85f)
-                    val maxLogoH = if (upperDisplayMode == UpperDisplayMode.LOGO_TITLE) {
+                    val maxLogoH = if (showLogoWithTitle) {
                         ((h - topBarH) * 0.62f).coerceIn(210f, h * 0.66f) * bannerPopScale
                     } else {
                         ((h - topBarH) * 0.74f).coerceIn(240f, h * 0.78f) * bannerPopScale
