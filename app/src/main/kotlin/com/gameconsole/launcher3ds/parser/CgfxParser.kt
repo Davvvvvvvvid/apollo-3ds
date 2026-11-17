@@ -237,18 +237,18 @@ object CgfxParser {
         texIdx: Int,
         outMeshes: MutableList<CgfxSubMesh>
     ) {
-        if (shapeOff + 0x98 > data.size) return
-        val subMeshCount = bb.getInt(shapeOff + 0x38)
-        val subMeshListRel = bb.getInt(shapeOff + 0x3C)
-        val vtxBufCount = bb.getInt(shapeOff + 0x8C)
-        val vtxBufListRel = bb.getInt(shapeOff + 0x90)
+        if (shapeOff + 0x48 > data.size) return
+        val faceCount = bb.getInt(shapeOff + 0x2C)
+        val faceListRel = bb.getInt(shapeOff + 0x30)
+        val vtxBufCount = bb.getInt(shapeOff + 0x38)
+        val vtxBufListRel = bb.getInt(shapeOff + 0x3C)
 
-        if (subMeshCount <= 0 || subMeshCount > 64 || vtxBufCount <= 0 || vtxBufCount > 32) return
+        if (faceCount <= 0 || faceCount > 64 || vtxBufCount <= 0 || vtxBufCount > 32) return
 
-        val subMeshListAbs = (shapeOff + 0x3C) + subMeshListRel
-        val vtxBufListAbs = (shapeOff + 0x90) + vtxBufListRel
+        val faceListAbs = (shapeOff + 0x30) + faceListRel
+        val vtxBufListAbs = (shapeOff + 0x3C) + vtxBufListRel
 
-        // Extract Vertex Attributes (Position, TexCoord0, Color)
+        // Extract Vertex Attributes (Position, TexCoord0, Color) across all VertexBuffers
         var posData: FloatArray? = null
         var uvData: FloatArray? = null
         var colData: FloatArray? = null
@@ -259,55 +259,51 @@ object CgfxParser {
             if (p + 4 > data.size) continue
             val vbRel = bb.getInt(p)
             val vbOff = p + vbRel
-            if (vbOff + 0x2C > data.size) continue
+            if (vbOff + 0x30 > data.size) continue
 
-            val attrType = bb.getInt(vbOff + 0x08) // 0=Pos, 1=Normal, 2=Tangent, 3=Color, 4=TexCoord0
-            val flags = bb.getInt(vbOff + 0x04)
-            // Interleaved stream vs standalone attribute stream
-            if ((flags and 0x40000000) != 0) {
-                // Interleaved VtxBuffer
-                val rawLen = bb.getInt(vbOff + 0x10)
-                val rawRel = bb.getInt(vbOff + 0x14)
-                val rawAbs = (vbOff + 0x14) + rawRel
-                val stride = bb.getInt(vbOff + 0x18).coerceAtLeast(12)
-                val streamCount = bb.getInt(vbOff + 0x1C)
-                val streamListRel = bb.getInt(vbOff + 0x20)
-                val streamListAbs = (vbOff + 0x20) + streamListRel
-                vertexCount = (rawLen / stride).coerceAtLeast(1)
+            val flags = bb.getInt(vbOff)
+            if ((flags and 0x40000000) != 0 && (flags and 0x0F) == 2) {
+                // Interleaved VtxBuffer (0x40000002)
+                val rawLen = bb.getInt(vbOff + 0x14)
+                val rawRel = bb.getInt(vbOff + 0x18)
+                val rawAbs = (vbOff + 0x18) + rawRel
+                val stride = bb.getInt(vbOff + 0x24).coerceAtLeast(4)
+                val streamCount = bb.getInt(vbOff + 0x28)
+                val streamListRel = bb.getInt(vbOff + 0x2C)
+                val streamListAbs = (vbOff + 0x2C) + streamListRel
+                val curVtxCount = (rawLen / stride).coerceAtLeast(1)
+                if (vertexCount == 0) vertexCount = curVtxCount
 
-                val pArr = FloatArray(vertexCount * 3)
-                val uArr = FloatArray(vertexCount * 2)
-                val cArr = FloatArray(vertexCount * 4) { 1f }
+                if (posData == null) posData = FloatArray(vertexCount * 3)
+                if (uvData == null) uvData = FloatArray(vertexCount * 2)
+                if (colData == null) colData = FloatArray(vertexCount * 4) { 1f }
 
                 for (sIdx in 0 until streamCount.coerceAtMost(16)) {
                     val sp = streamListAbs + sIdx * 4
                     if (sp + 4 > data.size) break
                     val sRel = bb.getInt(sp)
                     val sOff = sp + sRel
-                    if (sOff + 0x28 > data.size) continue
+                    if (sOff + 0x30 > data.size) continue
 
-                    val usage = bb.getInt(sOff + 0x08)
-                    val fmt = bb.getInt(sOff + 0x10) // 0=Byte, 1=UByte, 2=Short, 3=Float
-                    val compCount = bb.getInt(sOff + 0x14).coerceIn(1, 4)
-                    val scale = bb.getFloat(sOff + 0x18)
-                    val elemOffset = bb.getInt(sOff + 0x1C)
+                    val usage = bb.getInt(sOff + 0x04) // 0=Pos, 1=Normal, 3=Color, 4=TexCoord0
+                    val glType = bb.getInt(sOff + 0x20) // 0x1400=Byte, 0x1401=UByte, 0x1402=Short, 0x1406=Float
+                    val compCount = bb.getInt(sOff + 0x24).coerceIn(1, 4)
+                    val scale = bb.getFloat(sOff + 0x28)
+                    val elemOffset = bb.getInt(sOff + 0x2C)
 
-                    for (v in 0 until vertexCount) {
+                    for (v in 0 until min(vertexCount, curVtxCount)) {
                         val vBase = rawAbs + v * stride + elemOffset
-                        if (vBase + 4 > data.size) break
+                        if (vBase >= data.size) break
                         for (c in 0 until compCount) {
-                            val valF = readComp(data, bb, vBase, c, fmt) * scale
+                            val valF = readGlComp(data, bb, vBase, c, glType) * scale
                             when (usage) {
-                                0 -> if (c < 3) pArr[v * 3 + c] = valF
-                                3 -> if (c < 4) cArr[v * 4 + c] = valF
-                                4 -> if (c < 2) uArr[v * 2 + c] = if (c == 1) 1f - valF else valF
+                                0 -> if (c < 3) posData[v * 3 + c] = valF
+                                3 -> if (c < 4) colData[v * 4 + c] = valF
+                                4 -> if (c < 2) uvData[v * 2 + c] = if (c == 1) 1f - valF else valF
                             }
                         }
                     }
                 }
-                posData = pArr
-                uvData = uArr
-                colData = cArr
             }
         }
 
@@ -326,82 +322,85 @@ object CgfxParser {
             interleaved[v * 9 + 8] = colData?.getOrNull(v * 4 + 3) ?: 1f
         }
 
-        // Read Index Streams from SubMeshes
-        for (smIdx in 0 until subMeshCount) {
-            val sp = subMeshListAbs + smIdx * 4
-            if (sp + 4 > data.size) continue
-            val smRel = bb.getInt(sp)
-            val smOff = sp + smRel
-            if (smOff + 0x20 > data.size) continue
+        // Read Index Streams from Faces
+        for (fIdx in 0 until faceCount) {
+            val fp = faceListAbs + fIdx * 4
+            if (fp + 4 > data.size) continue
+            val fRel = bb.getInt(fp)
+            val fOff = fp + fRel
+            if (fOff + 0x18 > data.size) continue
 
-            val faceCount = bb.getInt(smOff + 0x0C)
-            val faceListRel = bb.getInt(smOff + 0x10)
-            val faceListAbs = (smOff + 0x10) + faceListRel
+            val idxStreamCount = bb.getInt(fOff + 0x0C)
+            val idxStreamListRel = bb.getInt(fOff + 0x10)
+            val idxStreamListAbs = (fOff + 0x10) + idxStreamListRel
 
-            for (fIdx in 0 until faceCount.coerceAtMost(16)) {
-                val fp = faceListAbs + fIdx * 4
-                if (fp + 4 > data.size) continue
-                val fRel = bb.getInt(fp)
-                val fOff = fp + fRel
-                if (fOff + 0x20 > data.size) continue
+            for (isIdx in 0 until idxStreamCount.coerceAtMost(8)) {
+                val isp = idxStreamListAbs + isIdx * 4
+                if (isp + 4 > data.size) continue
+                val isRel = bb.getInt(isp)
+                val isOff = isp + isRel
+                if (isOff + 0x2C > data.size) continue
 
-                val idxStreamCount = bb.getInt(fOff + 0x08)
-                val idxStreamListRel = bb.getInt(fOff + 0x0C)
-                val idxStreamListAbs = (fOff + 0x0C) + idxStreamListRel
-
-                for (isIdx in 0 until idxStreamCount.coerceAtMost(8)) {
-                    val isp = idxStreamListAbs + isIdx * 4
-                    if (isp + 4 > data.size) continue
-                    val isRel = bb.getInt(isp)
-                    val isOff = isp + isRel
-                    if (isOff + 0x18 > data.size) continue
-
-                    val idxFormat = data[isOff + 0x04].toInt() and 0xFF // 0=UByte, 1=UShort
-                    val idxLen = bb.getInt(isOff + 0x0C)
+                // IndexStream inside Face: +0x20=flags, +0x24=format(0=UByte,1=UShort), +0x28=len, +0x2C=dataRel
+                // Wait: in some Face structs, the IndexStream object is inline or pointed. Verify both:
+                val inlineLen = bb.getInt(isOff + 0x28)
+                val inlineRel = bb.getInt(isOff + 0x2C)
+                val isInline = (inlineLen in 3..65536) && (isOff + 0x2C + inlineRel in 0 until data.size)
+                val idxFormat: Int
+                val idxLen: Int
+                val idxDataAbs: Int
+                if (isInline) {
+                    idxFormat = data[isOff + 0x24].toInt() and 0xFF
+                    idxLen = inlineLen
+                    idxDataAbs = (isOff + 0x2C) + inlineRel
+                } else {
+                    idxFormat = data[isOff + 0x04].toInt() and 0xFF
+                    idxLen = bb.getInt(isOff + 0x0C)
                     val idxDataRel = bb.getInt(isOff + 0x10)
-                    val idxDataAbs = (isOff + 0x10) + idxDataRel
+                    idxDataAbs = (isOff + 0x10) + idxDataRel
+                }
 
-                    val indices = if (idxFormat == 0) {
-                        val arr = ShortArray(idxLen)
-                        for (k in 0 until idxLen) {
-                            if (idxDataAbs + k < data.size) {
-                                arr[k] = (data[idxDataAbs + k].toInt() and 0xFF).toShort()
-                            }
+                if (idxLen <= 0 || idxDataAbs < 0 || idxDataAbs >= data.size) continue
+                val indices = if (idxFormat == 0) {
+                    val arr = ShortArray(idxLen)
+                    for (k in 0 until idxLen) {
+                        if (idxDataAbs + k < data.size) {
+                            arr[k] = (data[idxDataAbs + k].toInt() and 0xFF).toShort()
                         }
-                        arr
-                    } else {
-                        val count = idxLen / 2
-                        val arr = ShortArray(count)
-                        for (k in 0 until count) {
-                            if (idxDataAbs + k * 2 + 1 < data.size) {
-                                arr[k] = bb.getShort(idxDataAbs + k * 2)
-                            }
+                    }
+                    arr
+                } else {
+                    val count = idxLen / 2
+                    val arr = ShortArray(count)
+                    for (k in 0 until count) {
+                        if (idxDataAbs + k * 2 + 1 < data.size) {
+                            arr[k] = bb.getShort(idxDataAbs + k * 2)
                         }
-                        arr
                     }
-                    if (indices.isNotEmpty()) {
-                        outMeshes.add(CgfxSubMesh(indices, interleaved, texIdx))
-                    }
+                    arr
+                }
+                if (indices.isNotEmpty()) {
+                    outMeshes.add(CgfxSubMesh(indices, interleaved, texIdx))
                 }
             }
         }
     }
 
-    private fun readComp(data: ByteArray, bb: ByteBuffer, base: Int, comp: Int, fmt: Int): Float {
-        return when (fmt) {
-            0 -> { // Byte
+    private fun readGlComp(data: ByteArray, bb: ByteBuffer, base: Int, comp: Int, glType: Int): Float {
+        return when (glType) {
+            0x1400 -> { // GL_BYTE
                 val p = base + comp
                 if (p < data.size) data[p].toFloat() else 0f
             }
-            1 -> { // UByte
+            0x1401 -> { // GL_UNSIGNED_BYTE
                 val p = base + comp
                 if (p < data.size) (data[p].toInt() and 0xFF).toFloat() else 0f
             }
-            2 -> { // Short
+            0x1402 -> { // GL_SHORT
                 val p = base + comp * 2
                 if (p + 1 < data.size) bb.getShort(p).toFloat() else 0f
             }
-            else -> { // Float
+            else -> { // 0x1406 GL_FLOAT
                 val p = base + comp * 4
                 if (p + 3 < data.size) bb.getFloat(p) else 0f
             }

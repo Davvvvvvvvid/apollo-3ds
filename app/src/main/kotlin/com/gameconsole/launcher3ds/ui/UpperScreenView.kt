@@ -158,9 +158,7 @@ class UpperScreenView @JvmOverloads constructor(
             isVideoFrameReady = false
             isCgfxBannerActive = false
             currentCgfxKey = ""
-            cgfxBannerView.alpha = 0f
-            cgfxBannerView.translationX = -9999f
-            cgfxBannerView.translationY = -9999f
+            cgfxBannerView.visibility = View.GONE
             SoundEffectEngine.stopBannerJingle()
             stopAndReleaseVideoPlayer()
 
@@ -515,11 +513,7 @@ class UpperScreenView @JvmOverloads constructor(
         addView(videoTextureView, LayoutParams(baseTextureW, baseTextureH))
 
         cgfxBannerView = CgfxGLBannerView(context).apply {
-            alpha = 0f
-            pivotX = 0f
-            pivotY = 0f
-            translationX = -9999f
-            translationY = -9999f
+            visibility = View.GONE
         }
         addView(cgfxBannerView, LayoutParams(baseTextureW, baseTextureH))
     }
@@ -772,9 +766,7 @@ class UpperScreenView @JvmOverloads constructor(
         val isPureLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE)
         if (item == null || !isHostResumed || isPureLogoMode || !isStageApplet(activeApplet)) {
             isCgfxBannerActive = false
-            cgfxBannerView.alpha = 0f
-            cgfxBannerView.translationX = -9999f
-            cgfxBannerView.translationY = -9999f
+            cgfxBannerView.visibility = View.GONE
             return
         }
         // 在「3DS原系统效果」模式下，优先呈现 3DS 原机 CGFX 3D 横幅（仅当存在预渲染 bannerAnimationPath 时让位于视频）；其他模式优先播 video.mp4
@@ -786,9 +778,7 @@ class UpperScreenView @JvmOverloads constructor(
         }
         if (hasVideoOverride || !is3dsSlot(item)) {
             isCgfxBannerActive = false
-            cgfxBannerView.alpha = 0f
-            cgfxBannerView.translationX = -9999f
-            cgfxBannerView.translationY = -9999f
+            cgfxBannerView.visibility = View.GONE
             return
         }
 
@@ -1121,9 +1111,9 @@ class UpperScreenView @JvmOverloads constructor(
             videoTextureView.translationY = -9999f
         }
         if (isCenteredLogoMode || !isCgfxBannerActive || isVideoFrameReady) {
-            cgfxBannerView.alpha = 0f
-            cgfxBannerView.translationX = -9999f
-            cgfxBannerView.translationY = -9999f
+            if (cgfxBannerView.visibility != View.GONE) {
+                cgfxBannerView.visibility = View.GONE
+            }
         }
         // 先渲染子视图（即硬件解码播放 video.mp4 的圆角 videoTextureView）
         super.dispatchDraw(canvas)
@@ -1162,8 +1152,9 @@ class UpperScreenView @JvmOverloads constructor(
             canvas.restore()
 
             // 2) 若当前正在播放实机预览视频 (video.mp4) 或 3D 横幅动效，或开启了滤镜，在预览窗右上角绘制微标
-            if ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || (isCgfxBannerActive && cgfxBannerView.alpha > 0.5f) || videoFilter != VideoFilterType.NONE) {
-                val isShowingCgfx = isCgfxBannerActive && !isVideoFrameReady && cgfxBannerView.alpha > 0.5f
+            val isCgfxVisible = isCgfxBannerActive && !isVideoFrameReady && cgfxBannerView.visibility == View.VISIBLE
+            if ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || isCgfxVisible || videoFilter != VideoFilterType.NONE) {
+                val isShowingCgfx = isCgfxVisible
                 val isShowingBanner = isShowingCgfx || (item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank()))
                 val baseTag = when {
                     isShowingCgfx -> "✨ 3DS 原机 3D 横幅 · 实时渲染"
@@ -2299,24 +2290,30 @@ class UpperScreenView @JvmOverloads constructor(
                 videoTextureView.translationY = -9999f
             }
 
-            // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView) 的坐标、缩放与陀螺仪视差
+            // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView) 的坐标、尺寸与陀螺仪视差
             if (!isVideoFrameReady && isCgfxBannerActive && isStageApplet(activeApplet) &&
                 upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
-                val baseW = (cgfxBannerView.width).coerceAtLeast(1).toFloat()
-                val baseH = (cgfxBannerView.height).coerceAtLeast(1).toFloat()
-                cgfxBannerView.pivotX = 0f
-                cgfxBannerView.pivotY = 0f
-                cgfxBannerView.translationX = currentScreenAbsRect.left
-                cgfxBannerView.translationY = currentScreenAbsRect.top
-                cgfxBannerView.scaleX = currentScreenAbsRect.width() / baseW
-                cgfxBannerView.scaleY = currentScreenAbsRect.height() / baseH
+                val targetW = currentScreenAbsRect.width().toInt().coerceAtLeast(1)
+                val targetH = currentScreenAbsRect.height().toInt().coerceAtLeast(1)
+                val targetL = currentScreenAbsRect.left.toInt()
+                val targetT = currentScreenAbsRect.top.toInt()
+                val lp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
+                if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT) {
+                    lp.width = targetW
+                    lp.height = targetH
+                    lp.leftMargin = targetL
+                    lp.topMargin = targetT
+                    cgfxBannerView.layoutParams = lp
+                }
+                if (cgfxBannerView.visibility != View.VISIBLE) {
+                    cgfxBannerView.visibility = View.VISIBLE
+                }
                 cgfxBannerView.parallaxX = tiltX / 20f
                 cgfxBannerView.parallaxY = totalTiltY / 20f
-                cgfxBannerView.alpha = 1f
             } else {
-                cgfxBannerView.alpha = 0f
-                cgfxBannerView.translationX = -9999f
-                cgfxBannerView.translationY = -9999f
+                if (cgfxBannerView.visibility != View.GONE) {
+                    cgfxBannerView.visibility = View.GONE
+                }
             }
 
             canvas.save()
