@@ -270,12 +270,12 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
             val halfD = (spanZ * 0.5f) * normScale
 
             // 依据 38° 垂直视角与当前宽高比，自适应计算相机距离：
-            // 让主体尽量饱满地填满预览区域（高度约占 90%、宽度约占 92%），同时防止高模型被裁切
+            // halfH / visibleHalfH = 0.86f -> 主体占据舞台约 86% 高度、88% 宽度
             val tanHalfFov = 0.344328f // tan(19 deg)
             val aspect = (surfaceWidth.coerceAtLeast(1).toFloat() / surfaceHeight.coerceAtLeast(1).toFloat()).coerceAtLeast(0.5f)
-            val distForY = (halfH / (0.48f * tanHalfFov)) + halfD * 0.35f
-            val distForX = (halfW / (0.48f * tanHalfFov * aspect)) + halfD * 0.35f
-            val camDist = max(distForY, distForX).coerceIn(0.85f, 5.0f)
+            val distForY = (halfH / (0.86f * tanHalfFov)) + halfD * 0.65f
+            val distForX = (halfW / (0.88f * tanHalfFov * aspect)) + halfD * 0.65f
+            val camDist = max(distForY, distForX).coerceIn(0.65f, 4.5f)
 
             val swayYaw = sin(elapsedSec * 1.15f) * 14f + parallaxX * 10f
             val swayPitch = cos(elapsedSec * 0.85f) * 4.5f + parallaxY * 6f
