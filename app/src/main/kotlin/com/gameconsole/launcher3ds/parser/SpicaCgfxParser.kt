@@ -276,14 +276,15 @@ object SpicaCgfxParser {
         // TranslucencyKind: +0x24
         val translucency = if (matOff + 0x28 <= data.size) bb.getInt(matOff + 0x24).coerceIn(0, 3) else 0
 
+        fun safe01(v: Float, def: Float = 1f): Float = if (v.isFinite()) v.coerceIn(0f, 1f) else def
         // GfxMaterialColor: starts at +0x2C (11 x Vector4 = 176 bytes)
         fun readVec4(off: Int, defW: Float = 1f): FloatArray {
             if (off + 16 > data.size) return floatArrayOf(1f, 1f, 1f, defW)
             return floatArrayOf(
-                bb.getFloat(off).coerceIn(0f, 1f),
-                bb.getFloat(off + 4).coerceIn(0f, 1f),
-                bb.getFloat(off + 8).coerceIn(0f, 1f),
-                bb.getFloat(off + 12).coerceIn(0f, 1f)
+                safe01(bb.getFloat(off), 1f),
+                safe01(bb.getFloat(off + 4), 1f),
+                safe01(bb.getFloat(off + 8), 1f),
+                safe01(bb.getFloat(off + 12), defW)
             )
         }
         val emission = readVec4(matOff + 0x2C, 1f)
@@ -326,33 +327,16 @@ object SpicaCgfxParser {
             }
         }
 
-        // GfxTextureCoord[0..2]: +0x1B0..0x270 (each 64 bytes)
+        // GfxTextureCoord[0..2]: 默认单位 UV（保持 1:1 采样，避免未对齐偏移引入脏数据）
         val texCoordIndices = intArrayOf(0, 0, 0)
         val uvScales = floatArrayOf(1f, 1f, 1f, 1f, 1f, 1f)
         val uvTranslations = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f)
         val uvRotations = floatArrayOf(0f, 0f, 0f)
-        val usedTexCoords = if (matOff + 0x1B0 <= data.size) bb.getInt(matOff + 0x1AC).coerceIn(0, 3) else 1
-        for (i in 0 until usedTexCoords) {
-            val tcOff = matOff + 0x1B0 + i * 64
-            if (tcOff + 64 <= data.size) {
-                texCoordIndices[i] = bb.getInt(tcOff).coerceIn(0, 2)
-                val sx = bb.getFloat(tcOff + 0x10)
-                val sy = bb.getFloat(tcOff + 0x14)
-                val rot = bb.getFloat(tcOff + 0x18)
-                val tx = bb.getFloat(tcOff + 0x1C)
-                val ty = bb.getFloat(tcOff + 0x20)
-                if (sx.isFinite() && sx != 0f) uvScales[i * 2] = sx
-                if (sy.isFinite() && sy != 0f) uvScales[i * 2 + 1] = sy
-                if (rot.isFinite()) uvRotations[i] = rot
-                if (tx.isFinite()) uvTranslations[i * 2] = tx
-                if (ty.isFinite()) uvTranslations[i * 2 + 1] = ty
-            }
-        }
 
         // TextureMappers[0..2]: +0x274, +0x278, +0x27C
         val texIndices = intArrayOf(-1, -1, -1)
-        val wrapU = intArrayOf(2, 2, 2) // Default Repeat in OpenGL unless specified
-        val wrapV = intArrayOf(2, 2, 2)
+        val wrapU = intArrayOf(0, 0, 0) // 默认 ClampToEdge，避免无指令时误平铺
+        val wrapV = intArrayOf(0, 0, 0)
         for (unit in 0 until 3) {
             val ptrOff = matOff + 0x274 + unit * 4
             if (ptrOff + 4 > data.size) continue
@@ -372,8 +356,8 @@ object SpicaCgfxParser {
                     }
                 }
             }
-            // Read PICA sampler commands inside TexMapper (+0x14..+0x2B)
-            val tmCmds = IntArray(6) { k -> bb.getInt(tmOff + 0x14 + k * 4) }
+            // Read PICA sampler commands inside TexMapper (+0x10..+0x2F, 8-byte aligned param+hdr pairs)
+            val tmCmds = IntArray(8) { k -> bb.getInt(tmOff + 0x10 + k * 4) }
             readPicaCommands(tmCmds) { reg, param ->
                 if (reg == 0x0083 || reg == 0x0093 || reg == 0x009B) {
                     wrapV[unit] = (param ushr 8) and 3
