@@ -327,21 +327,21 @@ object SpicaCgfxParser {
             }
         }
 
-        // GfxTextureCoord[0..2]: +0x168..0x270 (each 0x58 = 88 bytes; Scale at +0x14, Rot at +0x1C, Trans at +0x20)
+        // GfxTextureCoord[0..2]: +0x168 = UsedTextureCoordsCount, +0x16C..+0x273 = TextureCoords[0..2] (stride 0x58 = 88)
         val texCoordIndices = intArrayOf(0, 0, 0)
         val uvScales = floatArrayOf(1f, 1f, 1f, 1f, 1f, 1f)
         val uvTranslations = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f)
         val uvRotations = floatArrayOf(0f, 0f, 0f)
-        val usedTexCoords = if (matOff + 0x168 <= data.size) bb.getInt(matOff + 0x164).coerceIn(0, 3) else 1
+        val usedTexCoords = if (matOff + 0x16C <= data.size) bb.getInt(matOff + 0x168).coerceIn(0, 3) else 1
         for (i in 0 until usedTexCoords) {
-            val tcOff = matOff + 0x168 + i * 0x58
+            val tcOff = matOff + 0x16C + i * 0x58
             if (tcOff + 0x58 <= data.size) {
                 texCoordIndices[i] = bb.getInt(tcOff).coerceIn(0, 2)
-                val sx = bb.getFloat(tcOff + 0x14)
-                val sy = bb.getFloat(tcOff + 0x18)
-                val rot = bb.getFloat(tcOff + 0x1C)
-                val tx = bb.getFloat(tcOff + 0x20)
-                val ty = bb.getFloat(tcOff + 0x24)
+                val sx = bb.getFloat(tcOff + 0x10)
+                val sy = bb.getFloat(tcOff + 0x14)
+                val rot = bb.getFloat(tcOff + 0x18)
+                val tx = bb.getFloat(tcOff + 0x1C)
+                val ty = bb.getFloat(tcOff + 0x20)
                 if (sx.isFinite() && sx != 0f) uvScales[i * 2] = sx
                 if (sy.isFinite() && sy != 0f) uvScales[i * 2 + 1] = sy
                 if (rot.isFinite()) uvRotations[i] = rot
