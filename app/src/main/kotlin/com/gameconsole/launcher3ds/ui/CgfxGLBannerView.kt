@@ -59,6 +59,9 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
     @Volatile
     private var sizeChanged: Boolean = false
 
+    @Volatile
+    private var homeMenuCameraMode: Boolean = false
+
     private var renderThread: GlRenderThread? = null
 
     var cornerRadiusPx: Float = 14f
@@ -86,10 +89,12 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
         animStartTimeMs = System.currentTimeMillis()
     }
 
-    fun setSpicaScene(scene: SpicaCgfxParser.SpicaCgfxScene?) {
+    fun setSpicaScene(scene: SpicaCgfxParser.SpicaCgfxScene?, homeMenuMode: Boolean = false) {
         pendingSpicaScene = scene
         pendingScene = null
         useSpicaPipeline = true
+        homeMenuCameraMode = homeMenuMode
+        sizeChanged = true
         sceneDirty = true
         animStartTimeMs = System.currentTimeMillis()
     }
@@ -197,7 +202,8 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
                     val w = surfaceWidth.coerceAtLeast(1)
                     val h = surfaceHeight.coerceAtLeast(1)
                     GLES20.glViewport(0, 0, w, h)
-                    Matrix.perspectiveM(projMatrix, 0, 38f, w.toFloat() / h.toFloat(), 0.1f, 200f)
+                    val fovDeg = if (useSpicaPipeline && homeMenuCameraMode) 30f else 38f
+                    Matrix.perspectiveM(projMatrix, 0, fovDeg, w.toFloat() / h.toFloat(), 0.1f, 200f)
                 }
 
                 if (sceneDirty) {
@@ -321,17 +327,30 @@ class CgfxGLBannerView(context: Context) : TextureView(context), TextureView.Sur
             val halfH = (spanY * 0.5f) * normScale
             val halfD = (spanZ * 0.5f) * normScale
 
-            val tanHalfFov = 0.344328f
+            val tanHalfFov = if (homeMenuCameraMode) 0.267949f else 0.344328f
             val aspect = (surfaceWidth.coerceAtLeast(1).toFloat() / surfaceHeight.coerceAtLeast(1).toFloat()).coerceAtLeast(0.5f)
             val distForY = (halfH / (0.86f * tanHalfFov)) + halfD * 0.65f
             val distForX = (halfW / (0.88f * tanHalfFov * aspect)) + halfD * 0.65f
             val camDist = max(distForY, distForX).coerceIn(0.65f, 4.5f)
 
-            val swayYaw = sin(elapsedSec * 1.15f) * 14f + parallaxX * 10f
-            val swayPitch = cos(elapsedSec * 0.85f) * 4.5f + parallaxY * 6f
-            val floatY = sin(elapsedSec * 1.7f) * 0.022f
+            val swayYaw = if (homeMenuCameraMode) {
+                sin(elapsedSec * 0.6283185f) * 11.46f + parallaxX * 8f
+            } else {
+                sin(elapsedSec * 1.15f) * 14f + parallaxX * 10f
+            }
+            val swayPitch = if (homeMenuCameraMode) {
+                parallaxY * 4f
+            } else {
+                cos(elapsedSec * 0.85f) * 4.5f + parallaxY * 6f
+            }
+            val floatY = if (homeMenuCameraMode) {
+                sin(elapsedSec * 1.2f) * 0.014f
+            } else {
+                sin(elapsedSec * 1.7f) * 0.022f
+            }
+            val camY = if (homeMenuCameraMode) camDist * 0.14f else camDist * 0.05f
 
-            Matrix.setLookAtM(viewMatrix, 0, 0f, camDist * 0.05f, camDist, 0f, 0f, 0f, 0f, 1f, 0f)
+            Matrix.setLookAtM(viewMatrix, 0, 0f, camY, camDist, 0f, 0f, 0f, 0f, 1f, 0f)
             Matrix.multiplyMM(vpMatrix, 0, projMatrix, 0, viewMatrix, 0)
 
             Matrix.setIdentityM(modelMatrix, 0)

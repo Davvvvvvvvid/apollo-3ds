@@ -84,16 +84,16 @@ object SpicaCgfxParser {
         val minZ: Float, val maxZ: Float
     )
 
-    fun parseFile(cgfxFile: File): SpicaCgfxScene? {
+    fun parseFile(cgfxFile: File, applyHomeMenuFixes: Boolean = false): SpicaCgfxScene? {
         if (!cgfxFile.exists() || cgfxFile.length() < 64) return null
         return try {
-            parseBytes(cgfxFile.readBytes())
+            parseBytes(cgfxFile.readBytes(), applyHomeMenuFixes)
         } catch (_: Throwable) {
             null
         }
     }
 
-    fun parseBytes(data: ByteArray): SpicaCgfxScene? {
+    fun parseBytes(data: ByteArray, applyHomeMenuFixes: Boolean = false): SpicaCgfxScene? {
         if (data.size < 0x60) return null
         if (data[0] != 'C'.code.toByte() || data[1] != 'G'.code.toByte() ||
             data[2] != 'F'.code.toByte() || data[3] != 'X'.code.toByte()
@@ -134,6 +134,10 @@ object SpicaCgfxParser {
         }
 
         if (meshes.isEmpty()) return null
+
+        if (applyHomeMenuFixes) {
+            applyHomeMenuPostFixes(textures, materials, meshes)
+        }
 
         // 抗离群点自适应包围盒
         var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
@@ -993,5 +997,165 @@ object SpicaCgfxParser {
         8 -> "min((${a[0]}) * (${a[1]}) + (${a[2]}), 1.0)"
         9 -> "min((${a[0]}) + (${a[1]}), 1.0) * (${a[2]})"
         else -> "(${a[0]})"
+    }
+
+    /**
+     * 参考 2026-11-18 demo3ds (cgfx-gltf + 3DS HOME Menu) 全量 117 款 ROM 实测总结的通用修复规则：
+     * 1) 顶点色 Alpha 全 0 (>50% <0.02) -> 置 1.0
+     * 2) 带贴图材质且顶点色 >50% 近黑 -> 中和为白
+     * 3) AlphaTest(GEqual, ref=0) -> ref 抬升至 0.015
+     * 4) BLEND 材质纯黑/纯白不透明底 -> 边缘主色检测并柔化抠除
+     * 5) 片元光照暗灰明度图 + 高饱和顶点色 -> 提亮中性暗像素至近白
+     */
+    private fun applyHomeMenuPostFixes(
+        textures: ArrayList<CgfxParser.CgfxTexture>,
+        materials: ArrayList<SpicaMaterial>,
+        meshes: ArrayList<SpicaSubMesh>
+    ) {
+        // 1 & 2. 顶点色 Alpha 全 0 / 近黑修复
+        val matMaxSat = FloatArray(materials.size)
+        for (m in meshes) {
+            val vCount = m.vertices.size / 11
+            if (vCount <= 0) continue
+            var zeroAlphaCnt = 0
+            var blackRgbCnt = 0
+            var satSum = 0f
+            for (v in 0 until vCount) {
+                val base = v * 11
+                val r = m.vertices[base + 7]
+                val g = m.vertices[base + 8]
+                val b = m.vertices[base + 9]
+                val a = m.vertices[base + 10]
+                if (a < 0.02f) zeroAlphaCnt++
+                val mx = maxOf(r, g, b)
+                val mn = minOf(r, g, b)
+                if (mx < 0.05f) blackRgbCnt++
+                if (mx > 1e-5f) satSum += (mx - mn) / mx
+            }
+            val avgSat = satSum / vCount
+            if (m.materialIndex in matMaxSat.indices && avgSat > matMaxSat[m.materialIndex]) {
+                matMaxSat[m.materialIndex] = avgSat
+            }
+            if (zeroAlphaCnt > vCount / 2) {
+                for (v in 0 until vCount) m.vertices[v * 11 + 10] = 1f
+            }
+            val hasTex = materials.getOrNull(m.materialIndex)?.texIndices?.any { it >= 0 } == true
+            if (hasTex && blackRgbCnt > vCount / 2) {
+                for (v in 0 until vCount) {
+                    val base = v * 11
+                    val mx = maxOf(m.vertices[base + 7], m.vertices[base + 8], m.vertices[base + 9])
+                    if (mx < 0.05f) {
+                        m.vertices[base + 7] = 1f
+                        m.vertices[base + 8] = 1f
+                        m.vertices[base + 9] = 1f
+                    }
+                }
+            }
+        }
+
+        // 3. AlphaTest(GEqual, ref=0) -> 0.015f
+        for (i in materials.indices) {
+            val mat = materials[i]
+            if (mat.alphaTestEnabled && mat.alphaTestFunc == 7 && mat.alphaTestRef <= 0.001f) {
+                materials[i] = mat.copy(alphaTestRef = 0.015f)
+            }
+        }
+
+        // 4 & 5. 贴图抠底与中性暗灰明度图提亮
+        val processedSolidBg = HashSet<Int>()
+        val processedTint = HashSet<Int>()
+        for (mi in materials.indices) {
+            val mat = materials[mi]
+            val texIdx = mat.texIndices.firstOrNull { it >= 0 } ?: continue
+            if (texIdx !in textures.indices) continue
+
+            // 4. BLEND 材质纯黑/纯白底抠透明
+            if ((mat.blendMode != 0 || mat.renderLayer > 0) && processedSolidBg.add(texIdx)) {
+                val tex = textures[texIdx]
+                val px = tex.rgbaPixels
+                val w = tex.width; val h = tex.height
+                if (w > 2 && h > 2 && px.size == w * h && px.all { (it ushr 24) == 0xFF }) {
+                    val counts = HashMap<Int, Int>()
+                    var borderTotal = 0
+                    fun tally(argb: Int) {
+                        val rgb = argb and 0x00FFFFFF
+                        counts[rgb] = (counts[rgb] ?: 0) + 1
+                        borderTotal++
+                    }
+                    for (x in 0 until w) {
+                        tally(px[x])
+                        tally(px[(h - 1) * w + x])
+                    }
+                    for (y in 0 until h) {
+                        tally(px[y * w])
+                        tally(px[y * w + (w - 1)])
+                    }
+                    val top = counts.maxByOrNull { it.value }
+                    if (top != null && top.value.toFloat() / borderTotal >= 0.52f) {
+                        val tr = (top.key ushr 16) and 0xFF
+                        val tg = (top.key ushr 8) and 0xFF
+                        val tb = top.key and 0xFF
+                        val maxC = maxOf(tr, tg, tb)
+                        val minC = minOf(tr, tg, tb)
+                        val lum = (tr + tg + tb) / 3f
+                        if (maxC - minC <= 45 && (lum <= 60f || lum >= 195f)) {
+                            val outPx = px.copyOf()
+                            for (p in outPx.indices) {
+                                val argb = outPx[p]
+                                val r = (argb ushr 16) and 0xFF
+                                val g = (argb ushr 8) and 0xFF
+                                val b = argb and 0xFF
+                                val dist = maxOf(kotlin.math.abs(r - tr), kotlin.math.abs(g - tg), kotlin.math.abs(b - tb))
+                                val newA = when {
+                                    dist <= 14 -> 0
+                                    dist < 52 -> (255 * (dist - 14) / 38)
+                                    else -> 255
+                                }
+                                outPx[p] = (newA shl 24) or (argb and 0x00FFFFFF)
+                            }
+                            textures[texIdx] = tex.copy(rgbaPixels = outPx)
+                        }
+                    }
+                }
+            }
+
+            // 5. 片元光照中性暗灰贴图 + 高饱和顶点色 -> 提亮至近白
+            if (matMaxSat[mi] > 0.30f && processedTint.add(texIdx)) {
+                val tex = textures[texIdx]
+                val px = tex.rgbaPixels
+                var visible = 0
+                var neutralDark = 0
+                for (argb in px) {
+                    val a = (argb ushr 24) and 0xFF
+                    if (a <= 20) continue
+                    visible++
+                    val r = (argb ushr 16) and 0xFF
+                    val g = (argb ushr 8) and 0xFF
+                    val b = argb and 0xFF
+                    val lum = (r + g + b) / 3
+                    if (maxOf(r, g, b) - minOf(r, g, b) <= 28 && lum < 140) neutralDark++
+                }
+                if (visible > 0 && neutralDark.toFloat() / visible > 0.50f) {
+                    val outPx = px.copyOf()
+                    for (p in outPx.indices) {
+                        val argb = outPx[p]
+                        val a = (argb ushr 24) and 0xFF
+                        if (a <= 20) continue
+                        val r = (argb ushr 16) and 0xFF
+                        val g = (argb ushr 8) and 0xFF
+                        val b = argb and 0xFF
+                        val diff = maxOf(r, g, b) - minOf(r, g, b)
+                        val lum = (r + g + b) / 3
+                        if (diff <= 28 && lum < 180) {
+                            val nr = (235 - (180 - lum) / 10).coerceIn(r, 245)
+                            val ng = (235 - (180 - lum) / 10).coerceIn(g, 245)
+                            val nb = (235 - (180 - lum) / 10).coerceIn(b, 245)
+                            outPx[p] = (a shl 24) or (nr shl 16) or (ng shl 8) or nb
+                        }
+                    }
+                    textures[texIdx] = tex.copy(rgbaPixels = outPx)
+                }
+            }
+        }
     }
 }

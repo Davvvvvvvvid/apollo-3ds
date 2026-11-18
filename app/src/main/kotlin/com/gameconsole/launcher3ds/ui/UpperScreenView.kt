@@ -428,6 +428,7 @@ class UpperScreenView @JvmOverloads constructor(
     private var currentCgfxKey: String = ""
     private val cgfxSceneCache = android.util.LruCache<String, com.gameconsole.launcher3ds.parser.CgfxParser.CgfxScene>(6)
     private val spicaSceneCache = android.util.LruCache<String, com.gameconsole.launcher3ds.parser.SpicaCgfxParser.SpicaCgfxScene>(6)
+    private val picaHomeSceneCache = android.util.LruCache<String, com.gameconsole.launcher3ds.parser.SpicaCgfxParser.SpicaCgfxScene>(6)
     private var videoSurface: Surface? = null
     private var videoPlayer: MediaPlayer? = null
     private var currentVideoPath: String = ""
@@ -814,14 +815,16 @@ class UpperScreenView @JvmOverloads constructor(
                         }
                     }
                 }
-                val useSpica = (cgfxRenderEngine == CgfxRenderEngine.SPICA)
-                val spicaScene = if (useSpica && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
-                    spicaSceneCache.get(cgfxPath)
-                        ?: com.gameconsole.launcher3ds.parser.SpicaCgfxParser.parseFile(File(cgfxPath))?.also {
-                            spicaSceneCache.put(cgfxPath, it)
+                val useSpicaLike = (cgfxRenderEngine != CgfxRenderEngine.LEGACY)
+                val useHomeMenuFixes = (cgfxRenderEngine == CgfxRenderEngine.PICA_HOME)
+                val spicaScene = if (useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+                    val targetCache = if (useHomeMenuFixes) picaHomeSceneCache else spicaSceneCache
+                    targetCache.get(cgfxPath)
+                        ?: com.gameconsole.launcher3ds.parser.SpicaCgfxParser.parseFile(File(cgfxPath), applyHomeMenuFixes = useHomeMenuFixes)?.also {
+                            targetCache.put(cgfxPath, it)
                         }
                 } else null
-                val legacyScene = if (!useSpica && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+                val legacyScene = if (!useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
                     cgfxSceneCache.get(cgfxPath)
                         ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseFile(File(cgfxPath))?.also {
                             cgfxSceneCache.put(cgfxPath, it)
@@ -834,15 +837,15 @@ class UpperScreenView @JvmOverloads constructor(
                         upperDisplayMode != UpperDisplayMode.LOGO_TITLE &&
                         (!isVideoFrameReady || upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
                     ) {
-                        val hasValidScene = (useSpica && spicaScene != null) || (!useSpica && legacyScene != null)
+                        val hasValidScene = (useSpicaLike && spicaScene != null) || (!useSpicaLike && legacyScene != null)
                         if (hasValidScene) {
                             if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
                                 stopAndReleaseVideoPlayer()
                                 isVideoFrameReady = false
                             }
                             currentCgfxKey = cgfxPath
-                            if (useSpica) {
-                                cgfxBannerView.setSpicaScene(spicaScene)
+                            if (useSpicaLike) {
+                                cgfxBannerView.setSpicaScene(spicaScene, homeMenuMode = useHomeMenuFixes)
                             } else {
                                 cgfxBannerView.setScene(legacyScene)
                             }
@@ -1204,10 +1207,10 @@ class UpperScreenView @JvmOverloads constructor(
                 val isShowingCgfx = isCgfxVisible
                 val isShowingBanner = isShowingCgfx || (item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank()))
                 val baseTag = when {
-                    isShowingCgfx -> if (cgfxRenderEngine == CgfxRenderEngine.SPICA) {
-                        "✨ 3DS 原机 3D 横幅 · SPICA"
-                    } else {
-                        "✨ 3DS 原机 3D 横幅 · 经典"
+                    isShowingCgfx -> when (cgfxRenderEngine) {
+                        CgfxRenderEngine.SPICA -> "✨ 3DS 原机 3D 横幅 · SPICA"
+                        CgfxRenderEngine.PICA_HOME -> "✨ 3DS 原机 3D 横幅 · HOME复刻"
+                        CgfxRenderEngine.LEGACY -> "✨ 3DS 原机 3D 横幅 · 经典"
                     }
                     isShowingBanner && isVideoFullscreen -> "✨ 3DS 原版 3D 横幅 · 全屏"
                     isShowingBanner -> "✨ 3DS 原版 3D 横幅"
