@@ -1275,19 +1275,13 @@ class UpperScreenView @JvmOverloads constructor(
                 canvas.restore()
             }
 
-            // 2) 若当前正在播放实机预览视频 (video.mp4) 或 3D 横幅动效，或开启了滤镜，在预览窗右上角绘制微标
-            if ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || isCgfxVisible || videoFilter != VideoFilterType.NONE) {
-                val isShowingCgfx = isCgfxVisible
-                val isShowingBanner = isShowingCgfx || (item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank()))
+            // 2) 若当前正在播放实机预览视频 (video.mp4) 或开启了滤镜，在预览窗右上角绘制微标（3DS 原系统模式与 3D 横幅动效彻底去掉右上角标签）
+            val isPure3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
+            val isShowingCgfx = isCgfxVisible
+            val isShowingBanner = isShowingCgfx || (item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank()))
+            val shouldDrawBadge = !isPure3dsMode && !isShowingBanner && !isShowingCgfx && ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || videoFilter != VideoFilterType.NONE)
+            if (shouldDrawBadge) {
                 val baseTag = when {
-                    isShowingCgfx -> when (cgfxRenderEngine) {
-                        CgfxRenderEngine.SPICA -> "✨ 3DS 原机 3D 横幅 · SPICA"
-                        CgfxRenderEngine.PICA_HOME -> "✨ 3DS 原机 3D 横幅 · HOME复刻"
-                        CgfxRenderEngine.WASM_THREE -> "✨ 3DS 原机 3D 横幅 · WASM+Three"
-                        CgfxRenderEngine.LEGACY -> "✨ 3DS 原机 3D 横幅 · 经典"
-                    }
-                    isShowingBanner && isVideoFullscreen -> "✨ 3DS 原版 3D 横幅 · 全屏"
-                    isShowingBanner -> "✨ 3DS 原版 3D 横幅"
                     isVideoFullscreen && isVideoAudioEnabled -> "🔊 全屏原声"
                     isVideoFullscreen -> "⛶ 等比全屏"
                     isVideoAudioEnabled -> "🔊 视频原声中"
@@ -1309,7 +1303,6 @@ class UpperScreenView @JvmOverloads constructor(
                 )
                 paint.style = Paint.Style.FILL
                 paint.color = when {
-                    isShowingBanner -> Color.argb(220, 2, 132, 199)
                     isVideoAudioEnabled -> Color.argb(210, 230, 0, 18)
                     videoFilter != VideoFilterType.NONE -> Color.argb(195, Color.red(videoFilter.accentColor), Color.green(videoFilter.accentColor), Color.blue(videoFilter.accentColor))
                     else -> Color.argb(145, 12, 20, 32)
@@ -1323,31 +1316,31 @@ class UpperScreenView @JvmOverloads constructor(
                     tagRect.centerY() - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f,
                     statusTextPaint
                 )
+            }
 
-                if (isVideoFullscreen) {
-                    val exitHint = "◀ 双击或按 B 退出全屏"
-                    statusTextPaint.textSize = (currentScreenAbsRect.height() * 0.040f).coerceIn(11f, 15f)
-                    val eTw = statusTextPaint.measureText(exitHint) + 20f
-                    val eTh = statusTextPaint.textSize * 1.55f
-                    val exitRect = RectF(
-                        currentScreenAbsRect.left + 12f,
-                        currentScreenAbsRect.top + 12f,
-                        currentScreenAbsRect.left + 12f + eTw,
-                        currentScreenAbsRect.top + 12f + eTh
-                    )
-                    paint.style = Paint.Style.FILL
-                    paint.color = Color.argb(175, 15, 23, 42)
-                    canvas.drawRoundRect(exitRect, eTh / 2f, eTh / 2f, paint)
+            if (!isPure3dsMode && isVideoFullscreen) {
+                val exitHint = "◀ 双击或按 B 退出全屏"
+                statusTextPaint.textSize = (currentScreenAbsRect.height() * 0.040f).coerceIn(11f, 15f)
+                val eTw = statusTextPaint.measureText(exitHint) + 20f
+                val eTh = statusTextPaint.textSize * 1.55f
+                val exitRect = RectF(
+                    currentScreenAbsRect.left + 12f,
+                    currentScreenAbsRect.top + 12f,
+                    currentScreenAbsRect.left + 12f + eTw,
+                    currentScreenAbsRect.top + 12f + eTh
+                )
+                paint.style = Paint.Style.FILL
+                paint.color = Color.argb(175, 15, 23, 42)
+                canvas.drawRoundRect(exitRect, eTh / 2f, eTh / 2f, paint)
 
-                    statusTextPaint.color = Color.WHITE
-                    statusTextPaint.textAlign = Paint.Align.CENTER
-                    canvas.drawText(
-                        exitHint,
-                        exitRect.centerX(),
-                        exitRect.centerY() - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f,
-                        statusTextPaint
-                    )
-                }
+                statusTextPaint.color = Color.WHITE
+                statusTextPaint.textAlign = Paint.Align.CENTER
+                canvas.drawText(
+                    exitHint,
+                    exitRect.centerX(),
+                    exitRect.centerY() - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f,
+                    statusTextPaint
+                )
             }
 
             // 3) 前景 3D 视差悬浮官方透明 Logo (仅在开启卡盒且开启Logo的“双重豪华模式”下在卡盒上叠加)
