@@ -2518,6 +2518,8 @@ class UpperScreenView @JvmOverloads constructor(
                 if (activeCgfxView === cgfxBannerView) {
                     cgfxBannerView.parallaxX = tiltX / 20f
                     cgfxBannerView.parallaxY = totalTiltY / 20f
+                } else if (activeCgfxView === cgfxWebBannerView) {
+                    cgfxWebBannerView.setRotationAngle(tiltX * 0.035f)
                 }
             } else {
                 if (cgfxBannerView.visibility != View.GONE || cgfxWebBannerView.visibility != View.GONE) {
@@ -3063,20 +3065,7 @@ class UpperScreenView @JvmOverloads constructor(
         canvas.drawRoundRect(rect, radius, radius, paint)
         paint.shader = null
 
-        // 4. 水晶高光双层描边（外层淡主题色流光 + 内层纯白高光镜面边）
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 2.6f
-        paint.color = Color.argb(235, 255, 255, 255)
-        canvas.drawRoundRect(rect, radius, radius, paint)
-
-        paint.strokeWidth = 1.4f
-        paint.color = Color.argb(95, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
-        canvas.drawRoundRect(
-            RectF(rect.left - 1.5f, rect.top - 1.5f, rect.right + 1.5f, rect.bottom + 1.5f),
-            radius + 1.5f,
-            radius + 1.5f,
-            paint
-        )
+        // 4. 无边框极简设计：去除生硬的白色描边，保持通透悬浮与背景浑然一体
         paint.style = Paint.Style.FILL
 
         // 5. 跨界镶嵌在水晶牌正上沿的 3DS 立体平台徽章（将上方 3D 封面舞台与下方标题紧密锁合）
