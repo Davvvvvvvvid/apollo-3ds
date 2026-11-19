@@ -1202,18 +1202,13 @@ class UpperScreenView @JvmOverloads constructor(
                 canvas.restore()
             }
 
-            // 2) 若当前正在播放实机预览视频 (video.mp4) 或 3D 横幅动效，或开启了滤镜，在预览窗右上角绘制微标
-            if ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || isCgfxVisible || videoFilter != VideoFilterType.NONE) {
-                val isShowingCgfx = isCgfxVisible
-                val isShowingBanner = isShowingCgfx || (item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank()))
+            // 2) 若当前正在播放实机预览视频 (video.mp4) 或开启了滤镜，在预览窗右上角绘制微标（3DS 原系统模式与 3D 横幅动效彻底去掉右上角标签）
+            val isPure3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
+            val isShowingCgfx = isCgfxVisible
+            val isShowingBanner = isShowingCgfx || (item.bannerAnimationPath.isNotBlank() && (!isPreviewVideoPlaying || item.videoPath.isBlank()))
+            val shouldDrawBadge = !isPure3dsMode && !isShowingBanner && !isShowingCgfx && ((isVideoFrameReady && videoTextureView.alpha > 0.5f) || videoFilter != VideoFilterType.NONE)
+            if (shouldDrawBadge) {
                 val baseTag = when {
-                    isShowingCgfx -> when (cgfxRenderEngine) {
-                        CgfxRenderEngine.SPICA -> "✨ 3DS 原机 3D 横幅 · SPICA"
-                        CgfxRenderEngine.PICA_HOME -> "✨ 3DS 原机 3D 横幅 · HOME复刻"
-                        CgfxRenderEngine.LEGACY -> "✨ 3DS 原机 3D 横幅 · 经典"
-                    }
-                    isShowingBanner && isVideoFullscreen -> "✨ 3DS 原版 3D 横幅 · 全屏"
-                    isShowingBanner -> "✨ 3DS 原版 3D 横幅"
                     isVideoFullscreen && isVideoAudioEnabled -> "🔊 全屏原声"
                     isVideoFullscreen -> "⛶ 等比全屏"
                     isVideoAudioEnabled -> "🔊 视频原声中"
@@ -1235,7 +1230,6 @@ class UpperScreenView @JvmOverloads constructor(
                 )
                 paint.style = Paint.Style.FILL
                 paint.color = when {
-                    isShowingBanner -> Color.argb(220, 2, 132, 199)
                     isVideoAudioEnabled -> Color.argb(210, 230, 0, 18)
                     videoFilter != VideoFilterType.NONE -> Color.argb(195, Color.red(videoFilter.accentColor), Color.green(videoFilter.accentColor), Color.blue(videoFilter.accentColor))
                     else -> Color.argb(145, 12, 20, 32)
@@ -1249,31 +1243,31 @@ class UpperScreenView @JvmOverloads constructor(
                     tagRect.centerY() - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f,
                     statusTextPaint
                 )
+            }
 
-                if (isVideoFullscreen) {
-                    val exitHint = "◀ 双击或按 B 退出全屏"
-                    statusTextPaint.textSize = (currentScreenAbsRect.height() * 0.040f).coerceIn(11f, 15f)
-                    val eTw = statusTextPaint.measureText(exitHint) + 20f
-                    val eTh = statusTextPaint.textSize * 1.55f
-                    val exitRect = RectF(
-                        currentScreenAbsRect.left + 12f,
-                        currentScreenAbsRect.top + 12f,
-                        currentScreenAbsRect.left + 12f + eTw,
-                        currentScreenAbsRect.top + 12f + eTh
-                    )
-                    paint.style = Paint.Style.FILL
-                    paint.color = Color.argb(175, 15, 23, 42)
-                    canvas.drawRoundRect(exitRect, eTh / 2f, eTh / 2f, paint)
+            if (!isPure3dsMode && isVideoFullscreen) {
+                val exitHint = "◀ 双击或按 B 退出全屏"
+                statusTextPaint.textSize = (currentScreenAbsRect.height() * 0.040f).coerceIn(11f, 15f)
+                val eTw = statusTextPaint.measureText(exitHint) + 20f
+                val eTh = statusTextPaint.textSize * 1.55f
+                val exitRect = RectF(
+                    currentScreenAbsRect.left + 12f,
+                    currentScreenAbsRect.top + 12f,
+                    currentScreenAbsRect.left + 12f + eTw,
+                    currentScreenAbsRect.top + 12f + eTh
+                )
+                paint.style = Paint.Style.FILL
+                paint.color = Color.argb(175, 15, 23, 42)
+                canvas.drawRoundRect(exitRect, eTh / 2f, eTh / 2f, paint)
 
-                    statusTextPaint.color = Color.WHITE
-                    statusTextPaint.textAlign = Paint.Align.CENTER
-                    canvas.drawText(
-                        exitHint,
-                        exitRect.centerX(),
-                        exitRect.centerY() - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f,
-                        statusTextPaint
-                    )
-                }
+                statusTextPaint.color = Color.WHITE
+                statusTextPaint.textAlign = Paint.Align.CENTER
+                canvas.drawText(
+                    exitHint,
+                    exitRect.centerX(),
+                    exitRect.centerY() - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f,
+                    statusTextPaint
+                )
             }
 
             // 3) 前景 3D 视差悬浮官方透明 Logo (仅在开启卡盒且开启Logo的“双重豪华模式”下在卡盒上叠加)
@@ -2843,156 +2837,46 @@ class UpperScreenView @JvmOverloads constructor(
         h: Float,
         stageBottomY: Float,
         title: String,
-        subtitle: String,
-        platformBadge: String,
-        badgeColor: Int
+        subtitle: String = "",
+        platformBadge: String = "",
+        badgeColor: Int = Color.TRANSPARENT
     ) {
-        val accentColor = selectedSlot?.primaryColor ?: badgeColor
-        val plateW = (w * 0.74f).coerceIn(520f, 1380f)
-        val plateH = (h * 0.195f).coerceIn(88f, 142f)
-        val left = (w - plateW) / 2f
-        val top = (stageBottomY + h * 0.018f).coerceAtMost(h - plateH - h * 0.015f)
-        val radius = plateH * 0.46f
-        rect.set(left, top, left + plateW, top + plateH)
-
-        // 1. 左右向两侧远端柔和羽化消融的流光翼带（让标题区彻底融入整个上屏空间，不再像孤立贴纸）
-        val wingW = w * 0.82f
-        val wingLeft = (w - wingW) / 2f
-        val wingRect = RectF(wingLeft, rect.centerY() - plateH * 0.28f, wingLeft + wingW, rect.centerY() + plateH * 0.28f)
-        paint.style = Paint.Style.FILL
-        paint.shader = LinearGradient(
-            wingRect.left, 0f, wingRect.right, 0f,
-            intArrayOf(
-                Color.TRANSPARENT,
-                Color.argb(65, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
-                Color.argb(110, 255, 255, 255),
-                Color.argb(65, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(0f, 0.22f, 0.5f, 0.78f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(wingRect, paint)
-        paint.shader = null
-
-        // 2. 柔和的彩色环境背光投影
-        paint.color = Color.argb(42, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
-        canvas.drawRoundRect(
-            RectF(left - 4f, top + 3f, left + plateW + 4f, top + plateH + 6f),
-            radius + 4f,
-            radius + 4f,
-            paint
-        )
-
-        // 3. 半透明磨砂水晶主体（透出底层 3D 透视舞台网格，与上屏融为一体）
+        val centerX = w / 2f
         val isDarkTheme = isColorDark(currentTheme.upperSkyBottom)
-        val glassTop = if (isDarkTheme) {
-            Color.argb(185, 24, 36, 56)
-        } else {
-            Color.argb(192, 255, 255, 255)
-        }
-        val glassBottom = if (isDarkTheme) {
-            val tinted = blendColor(Color.parseColor("#101A2B"), accentColor, 0.22f)
-            Color.argb(165, Color.red(tinted), Color.green(tinted), Color.blue(tinted))
-        } else {
-            val tinted = blendColor(Color.parseColor("#E6F0FA"), accentColor, 0.14f)
-            Color.argb(158, Color.red(tinted), Color.green(tinted), Color.blue(tinted))
-        }
-        paint.shader = LinearGradient(
-            0f, rect.top, 0f, rect.bottom,
-            glassTop,
-            glassBottom,
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(rect, radius, radius, paint)
-        paint.shader = null
 
-        // 4. 水晶高光双层描边（外层淡主题色流光 + 内层纯白高光镜面边）
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 2.6f
-        paint.color = Color.argb(235, 255, 255, 255)
-        canvas.drawRoundRect(rect, radius, radius, paint)
-
-        paint.strokeWidth = 1.4f
-        paint.color = Color.argb(95, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
-        canvas.drawRoundRect(
-            RectF(rect.left - 1.5f, rect.top - 1.5f, rect.right + 1.5f, rect.bottom + 1.5f),
-            radius + 1.5f,
-            radius + 1.5f,
-            paint
-        )
-        paint.style = Paint.Style.FILL
-
-        // 5. 跨界镶嵌在水晶牌正上沿的 3DS 立体平台徽章（将上方 3D 封面舞台与下方标题紧密锁合）
-        if (platformBadge.isNotBlank()) {
-            val badgeFontSize = (plateH * 0.19f).coerceIn(14f, 22f)
-            textPaint.typeface = apolloMediumTypeface
-            textPaint.isFakeBoldText = false
-            textPaint.textSize = badgeFontSize
-            val bW = textPaint.measureText(platformBadge) + 32f
-            val bH = badgeFontSize * 1.62f
-            val bRect = RectF(
-                rect.centerX() - bW / 2f,
-                rect.top - bH * 0.52f,
-                rect.centerX() + bW / 2f,
-                rect.top + bH * 0.48f
-            )
-            paint.color = badgeColor
-            canvas.drawRoundRect(bRect, bH / 2f, bH / 2f, paint)
-
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1.8f
-            paint.color = Color.WHITE
-            canvas.drawRoundRect(bRect, bH / 2f, bH / 2f, paint)
-            paint.style = Paint.Style.FILL
-
-            textPaint.color = Color.WHITE
-            textPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText(
-                platformBadge,
-                bRect.centerX(),
-                bRect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f,
-                textPaint
-            )
-        }
-
-        // 6. 第一行：居中游戏主标题（两侧点缀 3DS 菱形星芒，精致适中字号）
-        val titleColor = if (isDarkTheme) Color.WHITE else Color.parseColor("#162232")
-        textPaint.color = titleColor
+        // 彻底移除底板背景色、胶囊主体、流光翼带与描边，让文字纯粹自然地与上屏背景融为一体
+        val baseTitleSize = (h * 0.078f).coerceIn(32f, 48f)
         textPaint.typeface = apolloMediumTypeface
         textPaint.isFakeBoldText = false
-        val titleFontSize = (plateH * 0.32f).coerceIn(22f, 38f)
-        textPaint.textSize = titleFontSize
+        textPaint.textSize = baseTitleSize
         textPaint.textAlign = Paint.Align.CENTER
-        val maxTextW = plateW * 0.90f
-        val cleanTitle = ellipsize(title, textPaint, maxTextW - 52f)
-        val titleY = rect.top + plateH * 0.46f
-        canvas.drawText(
-            cleanTitle,
-            rect.centerX(),
-            titleY,
-            textPaint
-        )
 
-        // 标题左右两侧精致菱形暗纹点缀
-        val halfTitleW = textPaint.measureText(cleanTitle) / 2f
-        val diamondSize = titleFontSize * 0.42f
-        textPaint.textSize = diamondSize
-        textPaint.color = blendColor(accentColor, currentTheme.cursorMainColor, 0.4f)
-        textPaint.alpha = 185
-        canvas.drawText("◆", rect.centerX() - halfTitleW - 16f, titleY - 2f, textPaint)
-        canvas.drawText("◆", rect.centerX() + halfTitleW + 16f, titleY - 2f, textPaint)
-        textPaint.alpha = 255
+        val maxTextW = w * 0.88f
+        val cleanTitle = ellipsize(title, textPaint, maxTextW)
+        val titleY = (stageBottomY + h * 0.055f).coerceAtMost(h - baseTitleSize * 1.1f)
 
-        // 7. 第二行：居中展示发行商与游玩记录（使用 Apollo 优雅细字体）
-        val subFontSize = (plateH * 0.19f).coerceIn(14f, 22f)
-        textPaint.typeface = apolloRegularTypeface
-        textPaint.isFakeBoldText = false
-        textPaint.textSize = subFontSize
-        textPaint.color = if (isDarkTheme) Color.parseColor("#CBD5E1") else Color.parseColor("#475569")
-        textPaint.textAlign = Paint.Align.CENTER
-        val subY = rect.top + plateH * 0.81f
-        canvas.drawText(ellipsize(subtitle, textPaint, maxTextW), rect.centerX(), subY, textPaint)
+        // 1) 柔和细腻的深邃立体阴影 (让文字立体悬浮，且无论在任何浅色或深色背景下均清晰醒目)
+        textPaint.color = Color.argb(150, 0, 0, 0)
+        canvas.drawText(cleanTitle, centerX + 1.8f, titleY + 2.5f, textPaint)
+
+        // 2) 悬浮主标题正文字色
+        textPaint.color = if (isDarkTheme) Color.WHITE else Color.parseColor("#1E293B")
+        canvas.drawText(cleanTitle, centerX, titleY, textPaint)
+
+        // 3) 若有副标题，以柔和次要字色悬浮在下方
+        if (subtitle.isNotBlank()) {
+            val subFontSize = (baseTitleSize * 0.44f).coerceIn(14f, 20f)
+            textPaint.typeface = apolloRegularTypeface
+            textPaint.textSize = subFontSize
+            val subY = titleY + subFontSize * 1.6f
+            if (subY <= h - 8f) {
+                textPaint.color = Color.argb(120, 0, 0, 0)
+                canvas.drawText(ellipsize(subtitle, textPaint, maxTextW), centerX + 1.2f, subY + 1.8f, textPaint)
+
+                textPaint.color = if (isDarkTheme) Color.parseColor("#CBD5E1") else Color.parseColor("#64748B")
+                canvas.drawText(ellipsize(subtitle, textPaint, maxTextW), centerX, subY, textPaint)
+            }
+        }
 
         // 恢复默认 bold typeface
         textPaint.typeface = boldTypeface
