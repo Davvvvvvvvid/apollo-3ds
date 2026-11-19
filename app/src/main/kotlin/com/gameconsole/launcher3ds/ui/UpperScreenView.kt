@@ -421,6 +421,7 @@ class UpperScreenView @JvmOverloads constructor(
     // 硬件加速内嵌实机视频预览组件 (用于播放 media/<游戏名>/video.mp4)
     private val videoTextureView: TextureView
     private val cgfxBannerView: CgfxGLBannerView
+    private val cgfxWebBannerView: CgfxWebBannerView
     @Volatile
     private var isCgfxBannerActive: Boolean = false
     @Volatile
@@ -530,6 +531,11 @@ class UpperScreenView @JvmOverloads constructor(
             visibility = View.GONE
         }
         addView(cgfxBannerView, LayoutParams(baseTextureW, baseTextureH))
+
+        cgfxWebBannerView = CgfxWebBannerView(context).apply {
+            visibility = View.GONE
+        }
+        addView(cgfxWebBannerView, LayoutParams(baseTextureW, baseTextureH))
     }
 
     override fun onAttachedToWindow() {
@@ -782,6 +788,8 @@ class UpperScreenView @JvmOverloads constructor(
             isCgfxBannerActive = false
             isCgfxFallbackLogo = false
             cgfxBannerView.visibility = View.GONE
+            cgfxWebBannerView.visibility = View.GONE
+            cgfxWebBannerView.clearBanner()
             return
         }
         // 在「3DS原系统效果」模式下，优先呈现 3DS 原机 CGFX 3D 横幅（仅当存在预渲染 bannerAnimationPath 时让位于视频）；其他模式优先播 video.mp4
@@ -795,6 +803,10 @@ class UpperScreenView @JvmOverloads constructor(
             isCgfxBannerActive = false
             isCgfxFallbackLogo = isSystem3dsMode && !hasVideoOverride
             cgfxBannerView.visibility = View.GONE
+            cgfxWebBannerView.visibility = View.GONE
+            cgfxWebBannerView.clearBanner()
+            cgfxWebBannerView.visibility = View.GONE
+            cgfxWebBannerView.clearBanner()
             return
         }
         isCgfxFallbackLogo = false
@@ -815,8 +827,12 @@ class UpperScreenView @JvmOverloads constructor(
                         }
                     }
                 }
-                val useSpicaLike = (cgfxRenderEngine != CgfxRenderEngine.LEGACY)
+                val useWasmThree = (cgfxRenderEngine == CgfxRenderEngine.WASM_THREE)
+                val useSpicaLike = (cgfxRenderEngine == CgfxRenderEngine.SPICA || cgfxRenderEngine == CgfxRenderEngine.PICA_HOME)
                 val useHomeMenuFixes = (cgfxRenderEngine == CgfxRenderEngine.PICA_HOME)
+                val wasmCgfxBytes = if (useWasmThree && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+                    try { File(cgfxPath).readBytes().takeIf { it.size >= 16 } } catch (_: Throwable) { null }
+                } else null
                 val spicaScene = if (useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
                     val targetCache = if (useHomeMenuFixes) picaHomeSceneCache else spicaSceneCache
                     targetCache.get(cgfxPath)
@@ -824,7 +840,7 @@ class UpperScreenView @JvmOverloads constructor(
                             targetCache.put(cgfxPath, it)
                         }
                 } else null
-                val legacyScene = if (!useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+                val legacyScene = if (!useWasmThree && !useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
                     cgfxSceneCache.get(cgfxPath)
                         ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseFile(File(cgfxPath))?.also {
                             cgfxSceneCache.put(cgfxPath, it)
@@ -837,17 +853,30 @@ class UpperScreenView @JvmOverloads constructor(
                         upperDisplayMode != UpperDisplayMode.LOGO_TITLE &&
                         (!isVideoFrameReady || upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
                     ) {
-                        val hasValidScene = (useSpicaLike && spicaScene != null) || (!useSpicaLike && legacyScene != null)
+                        val hasValidScene = (useWasmThree && wasmCgfxBytes != null) ||
+                            (useSpicaLike && spicaScene != null) ||
+                            (!useWasmThree && !useSpicaLike && legacyScene != null)
                         if (hasValidScene) {
                             if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
                                 stopAndReleaseVideoPlayer()
                                 isVideoFrameReady = false
                             }
                             currentCgfxKey = cgfxPath
-                            if (useSpicaLike) {
-                                cgfxBannerView.setSpicaScene(spicaScene, homeMenuMode = useHomeMenuFixes)
-                            } else {
-                                cgfxBannerView.setScene(legacyScene)
+                            when {
+                                useWasmThree -> {
+                                    cgfxBannerView.visibility = View.GONE
+                                    cgfxWebBannerView.setCgfxBytes(cgfxPath, wasmCgfxBytes)
+                                }
+                                useSpicaLike -> {
+                                    cgfxWebBannerView.visibility = View.GONE
+                                    cgfxWebBannerView.clearBanner()
+                                    cgfxBannerView.setSpicaScene(spicaScene, homeMenuMode = useHomeMenuFixes)
+                                }
+                                else -> {
+                                    cgfxWebBannerView.visibility = View.GONE
+                                    cgfxWebBannerView.clearBanner()
+                                    cgfxBannerView.setScene(legacyScene)
+                                }
                             }
                             isCgfxFallbackLogo = false
                             isCgfxBannerActive = true
@@ -857,6 +886,8 @@ class UpperScreenView @JvmOverloads constructor(
                             isCgfxBannerActive = false
                             isCgfxFallbackLogo = true
                             cgfxBannerView.visibility = View.GONE
+                            cgfxWebBannerView.visibility = View.GONE
+                            cgfxWebBannerView.clearBanner()
                             invalidate()
                         }
                         if (wavPath.isNotBlank()) {
@@ -1174,7 +1205,8 @@ class UpperScreenView @JvmOverloads constructor(
         // 在视频画面之上叠加：实时画面滤镜纹理、玻璃镜面光泽、LIVE VIDEO 徽标以及前景 3D 视差悬浮的透明游戏官方 Logo (logo.png)
         val item = selectedSlot
         if (isStageApplet(activeApplet) && item != null && item.type != PlatformType.EMPTY && !currentScreenAbsRect.isEmpty) {
-            val isCgfxVisible = isCgfxBannerActive && !isVideoFrameReady && cgfxBannerView.visibility == View.VISIBLE
+            val isCgfxVisible = isCgfxBannerActive && !isVideoFrameReady &&
+                (cgfxBannerView.visibility == View.VISIBLE || cgfxWebBannerView.visibility == View.VISIBLE)
             // 1) 视频屏实时画面滤镜叠加层（扫描线 / 3DS 液晶点阵 / 复古色调暗角等）+ 顶部镜面玻璃光泽（原机悬浮3D横幅不画电视反光框）
             if (!isCgfxVisible) {
                 canvas.save()
@@ -1210,6 +1242,7 @@ class UpperScreenView @JvmOverloads constructor(
                     isShowingCgfx -> when (cgfxRenderEngine) {
                         CgfxRenderEngine.SPICA -> "✨ 3DS 原机 3D 横幅 · SPICA"
                         CgfxRenderEngine.PICA_HOME -> "✨ 3DS 原机 3D 横幅 · HOME复刻"
+                        CgfxRenderEngine.WASM_THREE -> "✨ 3DS 原机 3D 横幅 · WASM+Three"
                         CgfxRenderEngine.LEGACY -> "✨ 3DS 原机 3D 横幅 · 经典"
                     }
                     isShowingBanner && isVideoFullscreen -> "✨ 3DS 原版 3D 横幅 · 全屏"
@@ -2353,7 +2386,16 @@ class UpperScreenView @JvmOverloads constructor(
                 videoTextureView.translationY = -9999f
             }
 
-            // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView) 的坐标、尺寸与陀螺仪视差
+            // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView / cgfxWebBannerView) 的坐标、尺寸与陀螺仪视差
+            val activeCgfxView: View = if (cgfxRenderEngine == CgfxRenderEngine.WASM_THREE) cgfxWebBannerView else cgfxBannerView
+            val inactiveCgfxView: View = if (cgfxRenderEngine == CgfxRenderEngine.WASM_THREE) cgfxBannerView else cgfxWebBannerView
+            if (inactiveCgfxView.visibility != View.GONE) {
+                post {
+                    if (inactiveCgfxView.visibility != View.GONE) {
+                        inactiveCgfxView.visibility = View.GONE
+                    }
+                }
+            }
             if (!isVideoFrameReady && isCgfxBannerActive && isStageApplet(activeApplet) &&
                 upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
                 // 让 3D 实时横幅占据上屏中央最外层舞台区域（不受内圈约束，状态栏以下、标题胶囊以上）
@@ -2361,27 +2403,32 @@ class UpperScreenView @JvmOverloads constructor(
                 val targetH = (height * 0.78f).toInt().coerceAtLeast(1)
                 val targetL = ((width - targetW) * 0.5f).toInt()
                 val targetT = (height * 0.03f).toInt()
-                val lp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
-                if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || cgfxBannerView.visibility != View.VISIBLE) {
+                val lp = (activeCgfxView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
+                if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || activeCgfxView.visibility != View.VISIBLE) {
                     post {
-                        val curLp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
+                        val curLp = (activeCgfxView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
                         curLp.width = targetW
                         curLp.height = targetH
                         curLp.leftMargin = targetL
                         curLp.topMargin = targetT
-                        cgfxBannerView.layoutParams = curLp
-                        if (cgfxBannerView.visibility != View.VISIBLE) {
-                            cgfxBannerView.visibility = View.VISIBLE
+                        activeCgfxView.layoutParams = curLp
+                        if (activeCgfxView.visibility != View.VISIBLE) {
+                            activeCgfxView.visibility = View.VISIBLE
                         }
                     }
                 }
-                cgfxBannerView.parallaxX = tiltX / 20f
-                cgfxBannerView.parallaxY = totalTiltY / 20f
+                if (activeCgfxView === cgfxBannerView) {
+                    cgfxBannerView.parallaxX = tiltX / 20f
+                    cgfxBannerView.parallaxY = totalTiltY / 20f
+                }
             } else {
-                if (cgfxBannerView.visibility != View.GONE) {
+                if (cgfxBannerView.visibility != View.GONE || cgfxWebBannerView.visibility != View.GONE) {
                     post {
                         if (cgfxBannerView.visibility != View.GONE) {
                             cgfxBannerView.visibility = View.GONE
+                        }
+                        if (cgfxWebBannerView.visibility != View.GONE) {
+                            cgfxWebBannerView.visibility = View.GONE
                         }
                     }
                 }

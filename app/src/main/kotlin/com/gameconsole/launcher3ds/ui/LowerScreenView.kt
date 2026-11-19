@@ -2938,11 +2938,12 @@ class LowerScreenView @JvmOverloads constructor(
                         val subText = if (isMuted) "点击恢复音量 (100%)" else "点击调节 (100/75/50/静音)"
                         canvas.drawText(subText, cr.centerX(), cr.centerY() + cardH * 0.24f, textPaint)
                     } else {
-                        // 卡片 9：3DS 3D 横幅渲染方案（SPICA 引擎 / HOME 复刻引擎 / 经典兼容引擎）
+                        // 卡片 9：3DS 3D 横幅渲染方案（SPICA / HOME 复刻 / WASM+Three / 经典兼容）
                         val isPrimaryEngine = (cgfxRenderEngine != CgfxRenderEngine.LEGACY)
                         val accent = when (cgfxRenderEngine) {
                             CgfxRenderEngine.SPICA -> Color.parseColor("#8B5CF6")
                             CgfxRenderEngine.PICA_HOME -> Color.parseColor("#10B981")
+                            CgfxRenderEngine.WASM_THREE -> Color.parseColor("#F59E0B")
                             CgfxRenderEngine.LEGACY -> Color.parseColor("#0EA5E9")
                         }
                         draw3dsSculptedDockButton(canvas, cr, 16f, isPrimary = isFocused || isPrimaryEngine, accentOverride = accent)

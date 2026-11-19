@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+html, body {
+  margin: 0; padding: 0; width: 100%; height: 100%;
+  overflow: hidden; background: transparent;
+}
+canvas {
+  display: block; width: 100%; height: 100%;
+}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./lib/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from './lib/three.module.js';
+import { GLTFLoader } from './lib/loaders/GLTFLoader.js';
+
+let wasmExports = null;
+let wasmReadyPromise = null;
+
+async function initWasm() {
+  if (wasmExports) return wasmExports;
+  if (!wasmReadyPromise) {
+    wasmReadyPromise = (async () => {
+      const resp = await fetch('./decoder.wasm');
+      const buf = await resp.arrayBuffer();
+      const { instance } = await WebAssembly.instantiate(buf, {});
+      wasmExports = instance.exports;
+      return wasmExports;
+    })();
+  }
+  return wasmReadyPromise;
+}
+
+const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+let activeCamera = new THREE.PerspectiveCamera(30, window.innerWidth / Math.max(1, window.innerHeight), 0.1, 1000);
+activeCamera.position.set(0, 6.3, 45);
+activeCamera.rotation.order = 'YXZ';
+activeCamera.rotation.x = THREE.MathUtils.degToRad(-8);
+
+let activeRoot = null;
+let mixer = null;
+let loadToken = 0;
+const clock = new THREE.Clock();
+const loader = new GLTFLoader();
+
+function resize() {
+  const w = Math.max(1, window.innerWidth);
+  const h = Math.max(1, window.innerHeight);
+  renderer.setSize(w, h);
+  activeCamera.aspect = w / h;
+  activeCamera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+function decodeBase64(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function picaSrcExpr(src, stageConst, hasTex) {
+  switch (src) {
+    case 0: return 'vColor';
+    case 1: return 'FragPriColor';
+    case 2: return 'FragSecColor';
+    case 3: return hasTex[0] ? 'Tex0' : 'vec4(1.0)';
+    case 4: return hasTex[1] ? 'Tex1' : 'vec4(1.0)';
+    case 5: return hasTex[2] ? 'Tex2' : 'vec4(1.0)';
+    case 13: return 'CombBuffer';
+    case 14: return stageConst;
+    case 15: return 'Previous';
+    default: return 'vec4(1.0)';
+  }
+}
+
+function picaColorOpExpr(op, expr) {
+  const swiz = (op & 0xE);
+  let base = `${expr}.rgb`;
+  if (swiz === 2) base = `${expr}.aaa`;
+  else if (swiz === 4) base = `${expr}.rrr`;
+  else if (swiz === 6) base = `${expr}.ggg`;
+  else if (swiz === 8) base = `${expr}.bbb`;
+  return (op & 1) ? `(vec3(1.0) - ${base})` : base;
+}
+
+function picaAlphaOpExpr(op, expr) {
+  const swiz = (op & 0xE);
+  let base = `${expr}.a`;
+  if (swiz === 2) base = `${expr}.r`;
+  else if (swiz === 4) base = `${expr}.g`;
+  else if (swiz === 6) base = `${expr}.b`;
+  return (op & 1) ? `(1.0 - ${base})` : base;
+}
+
+function picaCombRgb(mode, a) {
+  switch (mode) {
+    case 0: return a[0];
+    case 1: return `(${a[0]} * ${a[1]})`;
+    case 2: return `min(${a[0]} + ${a[1]}, 1.0)`;
+    case 3: return `clamp(${a[0]} + ${a[1]} - 0.5, 0.0, 1.0)`;
+    case 4: return `mix(${a[1]}, ${a[0]}, ${a[2]})`;
+    case 5: return `max(${a[0]} - ${a[1]}, 0.0)`;
+    case 6: return `vec3(clamp(dot(${a[0]}, ${a[1]}), 0.0, 1.0))`;
+    case 8: return `min(${a[0]} * ${a[1]} + ${a[2]}, 1.0)`;
+    case 9: return `min(${a[0]} + ${a[1]}, 1.0) * ${a[2]}`;
+    default: return a[0];
+  }
+}
+
+function picaCombAlpha(mode, a) {
+  switch (mode) {
+    case 0: return a[0];
+    case 1: return `(${a[0]} * ${a[1]})`;
+    case 2: return `min(${a[0]} + ${a[1]}, 1.0)`;
+    case 3: return `clamp(${a[0]} + ${a[1]} - 0.5, 0.0, 1.0)`;
+    case 4: return `mix(${a[1]}, ${a[0]}, ${a[2]})`;
+    case 5: return `max(${a[0]} - ${a[1]}, 0.0)`;
+    case 8: return `min(${a[0]} * ${a[1]} + ${a[2]}, 1.0)`;
+    case 9: return `min(${a[0]} + ${a[1]}, 1.0) * ${a[2]}`;
+    default: return a[0];
+  }
+}
+
+function vec4Lit(v) {
+  const arr = Array.isArray(v) ? v : [1, 1, 1, 1];
+  return `vec4(${Number(arr[0] ?? 1).toFixed(4)}, ${Number(arr[1] ?? 1).toFixed(4)}, ${Number(arr[2] ?? 1).toFixed(4)}, ${Number(arr[3] ?? 1).toFixed(4)})`;
+}
+
+function picaBlendToThree(factor) {
+  switch (factor) {
+    case 0: return THREE.ZeroFactor;
+    case 1: return THREE.OneFactor;
+    case 2: return THREE.SrcColorFactor;
+    case 3: return THREE.OneMinusSrcColorFactor;
+    case 4: return THREE.DstColorFactor;
+    case 5: return THREE.OneMinusDstColorFactor;
+    case 6: return THREE.SrcAlphaFactor;
+    case 7: return THREE.OneMinusSrcAlphaFactor;
+    case 8: return THREE.DstAlphaFactor;
+    case 9: return THREE.OneMinusDstAlphaFactor;
+    default: return THREE.OneFactor;
+  }
+}
+
+function picaEqToThree(eq) {
+  switch (eq) {
+    case 1: return THREE.SubtractEquation;
+    case 2: return THREE.ReverseSubtractEquation;
+    case 3: return THREE.MinEquation;
+    case 4: return THREE.MaxEquation;
+    default: return THREE.AddEquation;
+  }
+}
+
+function buildPicaShaderMaterial(pica, gltfTextures, hasSkinning, hasAuthoredLight) {
+  const tus = pica.textureUnits || [];
+  const state = pica.state || {};
+  const colors = pica.colors || [];
+  const selectors = pica.tevConstantSelectors || [0, 0, 0, 0, 0, 0];
+  const stages = state.tevStages || [];
+  const tevBuf = state.tevBuffer || {};
+
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.skinning || {},
+    {
+      uTex0: { value: null },
+      uTex1: { value: null },
+      uTex2: { value: null },
+    }
+  ]);
+
+  const hasTex = [false, false, false];
+  const mapMethod = [0, 0, 0];
+  const srcCoord = [0, 1, 2];
+  for (let i = 0; i < 3; i++) {
+    const tu = tus[i];
+    if (tu && tu.texture !== null && tu.texture !== undefined && gltfTextures[tu.texture]) {
+      uniforms[`uTex${i}`].value = gltfTextures[tu.texture];
+      hasTex[i] = true;
+    }
+    if (tu && tu.transform) {
+      mapMethod[i] = tu.transform.mappingMethod || 0;
+      srcCoord[i] = tu.transform.sourceCoordinate ?? i;
+    }
+  }
+
+  const fragLit = !!(pica.fragmentLighting && pica.fragmentLighting.enabled);
+  const em = vec4Lit(colors[3] || [0, 0, 0, 1]);
+  const amb = vec4Lit(colors[4] || [1, 1, 1, 1]);
+  const diff = vec4Lit(colors[5] || pica.diffuse || [1, 1, 1, 1]);
+  const bufCol = vec4Lit(tevBuf.color || [0, 0, 0, 1]);
+
+  let vs = `
+    varying vec2 vUv0;
+    varying vec2 vUv1;
+    varying vec2 vUv2;
+    varying vec4 vColor;
+    varying vec3 vViewNormal;
+    #ifdef USE_UV1
+      attribute vec2 uv1;
+    #endif
+    #ifdef USE_UV2
+      attribute vec2 uv2;
+    #endif
+    #ifndef USE_COLOR
+      // fallback if no COLOR_0
+    #endif
+    #include <common>
+    #include <skinning_pars_vertex>
+    void main() {
+      vUv0 = uv;
+      #ifdef USE_UV1
+        vUv1 = uv1;
+      #else
+        vUv1 = uv;
+      #endif
+      #ifdef USE_UV2
+        vUv2 = uv2;
+      #else
+        vUv2 = vUv1;
+      #endif
+      #ifdef HAS_VCOLOR
+        vColor = color;
+      #else
+        vColor = vec4(1.0);
+      #endif
+      vec3 objectNormal = vec3(normal);
+      vec3 transformed = vec3(position);
+      #include <skinbase_vertex>
+      #include <skinning_vertex>
+      #include <skinnormal_vertex>
+      vViewNormal = normalize(normalMatrix * objectNormal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+    }
+  `;
+
+  let fs = `
+    precision highp float;
+    uniform sampler2D uTex0;
+    uniform sampler2D uTex1;
+    uniform sampler2D uTex2;
+    varying vec2 vUv0;
+    varying vec2 vUv1;
+    varying vec2 vUv2;
+    varying vec4 vColor;
+    varying vec3 vViewNormal;
+
+    vec2 pickUv(int coord, int method) {
+      if (method == 1 || method == 2) {
+        vec3 n = normalize(vViewNormal);
+        return vec2(n.x * 0.5 + 0.5, 0.5 - n.y * 0.5);
+      }
+      if (coord == 1) return vUv1;
+      if (coord == 2) return vUv2;
+      return vUv0;
+    }
+
+    void main() {
+      vec4 Tex0 = ${hasTex[0] ? `texture2D(uTex0, pickUv(${srcCoord[0]}, ${mapMethod[0]}))` : 'vec4(1.0)'};
+      vec4 Tex1 = ${hasTex[1] ? `texture2D(uTex1, pickUv(${srcCoord[1]}, ${mapMethod[1]}))` : 'vec4(1.0)'};
+      vec4 Tex2 = ${hasTex[2] ? `texture2D(uTex2, pickUv(${srcCoord[2]}, ${mapMethod[2]}))` : 'vec4(1.0)'};
+
+      vec3 nView = normalize(vViewNormal);
+      float ndotl = ${hasAuthoredLight ? '0.75' : 'max(dot(nView, normalize(vec3(0.15, 0.35, 0.92))), 0.0)'};
+      vec4 FragPriColor = ${fragLit
+        ? `vec4(clamp(${em}.rgb + ${amb}.rgb * 0.45 + ${diff}.rgb * (0.30 + 0.65 * ndotl), 0.0, 1.0), clamp(${diff}.a, 0.0, 1.0))`
+        : `vec4(clamp(${em}.rgb + ${amb}.rgb * 0.45 + ${diff}.rgb * 0.55, 0.0, 1.0), clamp(${diff}.a, 0.0, 1.0))`};
+      vec4 FragSecColor = vec4(0.0, 0.0, 0.0, 1.0);
+      vec4 Previous = vec4(1.0);
+      vec4 Output = vec4(1.0);
+      vec4 CombBuffer = ${bufCol};
+  `;
+
+  for (let i = 0; i < stages.length; i++) {
+    const st = stages[i];
+    const sel = selectors[i] ?? i;
+    const cVal = vec4Lit(colors[sel] || st.constant || [0, 0, 0, 1]);
+    const cSrc = st.rgbSources || [15, 15, 15];
+    const aSrc = st.alphaSources || [15, 15, 15];
+    const cOp = st.rgbOperands || [0, 0, 0];
+    const aOp = st.alphaOperands || [0, 0, 0];
+    const cArgs = [0, 1, 2].map(k => picaColorOpExpr(cOp[k], picaSrcExpr(cSrc[k], cVal, hasTex)));
+    const aArgs = [0, 1, 2].map(k => picaAlphaOpExpr(aOp[k], picaSrcExpr(aSrc[k], cVal, hasTex)));
+    const cScale = st.rgbScale || 1;
+    const aScale = st.alphaScale || 1;
+    const cExpr = picaCombRgb(st.rgbOperator || 0, cArgs);
+    const aExpr = picaCombAlpha(st.alphaOperator || 0, aArgs);
+    fs += `
+      Output.rgb = clamp((${cExpr}) * ${Number(cScale).toFixed(1)}, 0.0, 1.0);
+      Output.a = clamp((${aExpr}) * ${Number(aScale).toFixed(1)}, 0.0, 1.0);
+    `;
+    const updRgb = Array.isArray(tevBuf.updateRgb) && tevBuf.updateRgb[i];
+    const updAlpha = Array.isArray(tevBuf.updateAlpha) && tevBuf.updateAlpha[i];
+    if (updRgb) fs += `  CombBuffer.rgb = Previous.rgb;\n`;
+    if (updAlpha) fs += `  CombBuffer.a = Previous.a;\n`;
+    fs += `  Previous = Output;\n`;
+  }
+
+  const at = state.alphaTest || {};
+  if (at.enabled) {
+    const ref = (at.function === 7 && (!at.reference || at.reference <= 0.001)) ? 0.015 : (at.reference || 0);
+    const rLit = Number(ref).toFixed(4);
+    switch (at.function) {
+      case 0: fs += `  discard;\n`; break;
+      case 2: fs += `  if (abs(Output.a - ${rLit}) > 0.004) discard;\n`; break;
+      case 3: fs += `  if (abs(Output.a - ${rLit}) <= 0.004) discard;\n`; break;
+      case 4: fs += `  if (Output.a >= ${rLit}) discard;\n`; break;
+      case 5: fs += `  if (Output.a > ${rLit}) discard;\n`; break;
+      case 6: fs += `  if (Output.a <= ${rLit}) discard;\n`; break;
+      case 7: fs += `  if (Output.a < ${rLit}) discard;\n`; break;
+    }
+  } else if (state.blend && state.blend.enabled) {
+    fs += `  if (Output.a < 0.004) discard;\n`;
+  }
+
+  fs += `
+      gl_FragColor = Output;
+    }
+  `;
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: vs,
+    fragmentShader: fs,
+    skinning: hasSkinning,
+    transparent: !!(state.blend && state.blend.enabled) || (pica.translucencyKind > 0),
+    depthTest: state.depth ? (state.depth.enabled !== false) : true,
+    depthWrite: state.depth ? (state.depth.writeEnabled !== false) : true,
+    side: state.cullMode === 0 ? THREE.DoubleSide : (state.cullMode === 1 ? THREE.BackSide : THREE.FrontSide),
+    defines: {}
+  });
+
+  if (state.blend && state.blend.enabled) {
+    mat.blending = THREE.CustomBlending;
+    mat.blendEquation = picaEqToThree(state.blend.colorEquation);
+    mat.blendEquationAlpha = picaEqToThree(state.blend.alphaEquation);
+    mat.blendSrc = picaBlendToThree(state.blend.sourceColor);
+    mat.blendDst = picaBlendToThree(state.blend.destinationColor);
+    mat.blendSrcAlpha = THREE.OneFactor;
+    mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+  }
+
+  return mat;
+}
+
+function clearCurrent() {
+  if (mixer) { mixer.stopAllAction(); mixer = null; }
+  if (activeRoot) {
+    scene.remove(activeRoot);
+    activeRoot.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach(m => m.dispose());
+      }
+    });
+    activeRoot = null;
+  }
+}
+
+window.clearBanner = function() {
+  loadToken++;
+  clearCurrent();
+};
+
+window.loadCgfxBase64 = async function(b64) {
+  const token = ++loadToken;
+  try {
+    const wasm = await initWasm();
+    if (token !== loadToken) return;
+    const raw = decodeBase64(b64);
+    const inPtr = wasm.wasm_alloc(raw.length);
+    new Uint8Array(wasm.memory.buffer, inPtr, raw.length).set(raw);
+    const outPtr = wasm.cgfx_to_glb(inPtr, raw.length);
+    wasm.wasm_free(inPtr, raw.length);
+    if (!outPtr) {
+      clearCurrent();
+      return;
+    }
+    const mem = new DataView(wasm.memory.buffer);
+    const glbLen = mem.getUint32(outPtr, true);
+    const glbBytes = new Uint8Array(wasm.memory.buffer, outPtr + 4, glbLen).slice();
+
+    loader.parse(glbBytes.buffer, '', async (gltf) => {
+      if (token !== loadToken) return;
+      clearCurrent();
+
+      const json = gltf.parser && gltf.parser.json ? gltf.parser.json : {};
+      const texDefs = json.textures || [];
+      const gltfTextures = await Promise.all(texDefs.map((_, i) => gltf.parser.getDependency('texture', i).catch(() => null)));
+      if (token !== loadToken) return;
+
+      const matDefs = json.materials || [];
+      const hasAuthoredLight = !!(json.extensions && json.extensions.EXT_cgfx_pica && Array.isArray(json.extensions.EXT_cgfx_pica.lights) && json.extensions.EXT_cgfx_pica.lights.length > 0);
+      const customMats = new Map();
+
+      gltf.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        const g = o.geometry;
+        const hasUv1 = !!(g && g.getAttribute('uv1'));
+        const hasUv2 = !!(g && g.getAttribute('uv2'));
+        const hasCol = !!(g && g.getAttribute('color'));
+        const mList = Array.isArray(o.material) ? o.material : [o.material];
+        const outMats = mList.map((origMat) => {
+          const idx = matDefs.findIndex(md => md && md.name === origMat.name);
+          const pica = idx >= 0 && matDefs[idx].extensions ? matDefs[idx].extensions.EXT_cgfx_pica : null;
+          if (!pica) return origMat;
+          const key = `${idx}_${!!o.isSkinnedMesh}_${hasUv1}_${hasUv2}_${hasCol}`;
+          if (!customMats.has(key)) {
+            const cm = buildPicaShaderMaterial(pica, gltfTextures, !!o.isSkinnedMesh, hasAuthoredLight);
+            if (hasUv1) cm.defines.USE_UV1 = 1;
+            if (hasUv2) cm.defines.USE_UV2 = 1;
+            if (hasCol) cm.defines.HAS_VCOLOR = 1;
+            cm.needsUpdate = true;
+            customMats.set(key, cm);
+          }
+          return customMats.get(key);
+        });
+        o.material = Array.isArray(o.material) ? outMats : outMats[0];
+      });
+
+      activeRoot = gltf.scene;
+      scene.add(activeRoot);
+
+      if (gltf.cameras && gltf.cameras.length > 0) {
+        const cam = gltf.cameras.find(c => c.name && c.name.includes('HOME')) || gltf.cameras[0];
+        if (cam && cam.isPerspectiveCamera) {
+          activeCamera = cam;
+          activeCamera.aspect = window.innerWidth / Math.max(1, window.innerHeight);
+          activeCamera.updateProjectionMatrix();
+        }
+      }
+
+      if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(activeRoot);
+        for (const clip of gltf.animations) {
+          const action = mixer.clipAction(clip);
+          if (clip.name && clip.name.includes('HOME Menu Spin')) {
+            action.timeScale = 0.6;
+          }
+          action.play();
+        }
+      }
+      clock.getDelta();
+    }, () => {
+      clearCurrent();
+    });
+  } catch (e) {
+    console.error(e);
+    clearCurrent();
+  }
+};
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (mixer) mixer.update(dt);
+  renderer.render(scene, activeCamera);
+}
+animate();
+</script>
+</body>
+</html>
