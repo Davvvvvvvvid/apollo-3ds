@@ -1545,11 +1545,6 @@ class UpperScreenView @JvmOverloads constructor(
 
     private fun drawUpperStageBackground(canvas: Canvas, w: Float, h: Float) {
         val item = selectedSlot
-        if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && topStillBitmap != null) {
-            val bgBmp = topStillBitmap!!
-            canvas.drawBitmap(bgBmp, null, RectF(0f, 0f, w, h), bitmapPaint)
-            return
-        }
         val accentColor = if (item != null && item.type != PlatformType.EMPTY) {
             item.primaryColor
         } else {
@@ -2025,7 +2020,11 @@ class UpperScreenView @JvmOverloads constructor(
     private fun drawGameBanner3DStage(canvas: Canvas, w: Float, h: Float, topBarH: Float) {
         val item = selectedSlot
         val stageCenterX = w * 0.5f
-        val stageCenterY = topBarH + (h - topBarH) * 0.415f
+        val stageCenterY = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
+            topBarH + (h - topBarH - (h * 0.125f)) * 0.5f
+        } else {
+            topBarH + (h - topBarH) * 0.415f
+        }
         // 1. 硬件陀螺仪/重力感应器 3D 裸眼视差联动平滑计算
         smoothSensorTiltX += (targetSensorTiltX - smoothSensorTiltX) * 0.15f
         smoothSensorTiltY += (targetSensorTiltY - smoothSensorTiltY) * 0.15f
@@ -2301,6 +2300,17 @@ class UpperScreenView @JvmOverloads constructor(
                             title = item.title,
                             subtitle = item.subtitle.ifBlank { item.publisher }
                         )
+                    } else if (isCgfxFallbackLogoMode) {
+                        draw3dsSpeechBubblePlate(
+                            canvas = canvas,
+                            w = w,
+                            h = h,
+                            stageBottomY = heroRect.bottom + 8f,
+                            title = item.title,
+                            subtitle = "",
+                            platformBadge = "",
+                            badgeColor = accentColor
+                        )
                     }
                 }
                 return
@@ -2376,12 +2386,21 @@ class UpperScreenView @JvmOverloads constructor(
                 }
                 gapBetween = stageH * 0.045f
             } else if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && isCgfxBannerActive && !isVideoFrameReady) {
-                // 3DS 原系统悬浮 3D 横幅：无边框全视野悬浮舞台
+                // 3DS 原系统悬浮 3D 横幅：无边框全视野悬浮舞台，最大化放大 3D 模型视口空间
                 boxW = 0f
                 boxH = 0f
                 gapBetween = 0f
-                screenH = (stageH * 1.16f).coerceAtMost(h - topBarH - 12f)
-                screenW = w * 0.90f
+                val bottomOccupied = h * 0.125f
+                val availH = (h - topBarH - bottomOccupied).coerceAtLeast(1f)
+                val maxW = (w * 0.96f).coerceAtLeast(1f)
+                var bW = availH * (5f / 3f)
+                var bH = availH
+                if (bW > maxW) {
+                    bW = maxW
+                    bH = bW * (3f / 5f)
+                }
+                screenW = bW
+                screenH = bH
             } else {
                 // 纯净大屏影院模式：左侧组件隐藏，右侧屏幕自动居中放大
                 boxW = 0f
@@ -2393,7 +2412,7 @@ class UpperScreenView @JvmOverloads constructor(
             }
 
             var totalStageW = boxW + gapBetween + screenW
-            val maxStageW = w * 0.92f
+            val maxStageW = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) w * 0.96f else w * 0.92f
             if (totalStageW > maxStageW) {
                 val scale = maxStageW / totalStageW
                 screenH *= scale
@@ -2404,8 +2423,13 @@ class UpperScreenView @JvmOverloads constructor(
                 totalStageW = maxStageW
             }
 
-            val cx = stageCenterX + tiltX * 0.4f
-            val cy = stageCenterY + floatY
+            val isPure3ds = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && isCgfxBannerActive && !isVideoFrameReady)
+            val cx = if (isPure3ds) stageCenterX else (stageCenterX + tiltX * 0.4f)
+            val cy = if (isPure3ds) {
+                topBarH + (h - topBarH - (h * 0.125f)) * 0.5f
+            } else {
+                stageCenterY + floatY
+            }
 
             val boxRect: RectF
             val screenRect: RectF
@@ -2465,9 +2489,10 @@ class UpperScreenView @JvmOverloads constructor(
             }
             if (!isVideoFrameReady && isCgfxBannerActive && isStageApplet(activeApplet) &&
                 upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
-                // 让 3D 实时横幅以标准 5:3 原机比例居中占据中央舞台（状态栏以下、标题胶囊以上）
-                val availH = (height * 0.72f).coerceAtLeast(1f)
-                val maxW = (width * 0.94f).coerceAtLeast(1f)
+                // 让 3D 实时横幅以标准 5:3 原机比例居中占据中央舞台（状态栏以下、标题胶囊以上，极大幅面展示）
+                val bottomOccupied = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) height * 0.125f else height * 0.20f
+                val availH = (height - topBarH - bottomOccupied).coerceAtLeast(1f)
+                val maxW = (width * 0.96f).coerceAtLeast(1f)
                 var targetW = (availH * (5f / 3f)).toInt()
                 var targetH = availH.toInt()
                 if (targetW > maxW) {
@@ -2475,7 +2500,7 @@ class UpperScreenView @JvmOverloads constructor(
                     targetH = (targetW * (3f / 5f)).toInt()
                 }
                 val targetL = ((width - targetW) * 0.5f).toInt()
-                val targetT = (topBarH + (height - topBarH - (height * 0.20f) - targetH) * 0.5f).toInt().coerceAtLeast(topBarH.toInt())
+                val targetT = (topBarH + (height - topBarH - bottomOccupied - targetH) * 0.5f).toInt().coerceAtLeast(topBarH.toInt())
                 val lp = (activeCgfxView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
                 if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || activeCgfxView.visibility != View.VISIBLE) {
                     post {
@@ -2835,7 +2860,7 @@ class UpperScreenView @JvmOverloads constructor(
         val catName = GameCategory.fromId(item.categoryId).shortName
         val platDef = com.gameconsole.launcher3ds.model.PlatformCatalog.getById(item.getEffectivePlatform())
         val platTitle = platDef?.shortName ?: "3DS"
-        val platformBadge = when (item.type) {
+        val platformBadge = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) "" else when (item.type) {
             PlatformType.FOLDER -> "3DS 文件夹 (${folderChildrenCount}项)"
             PlatformType.BADGE -> "桌面徽章"
             PlatformType.ANDROID_APP -> "ANDROID APP · $catName"
@@ -2848,7 +2873,9 @@ class UpperScreenView @JvmOverloads constructor(
         }
         val hours = item.playTimeMinutes / 60
         val mins = item.playTimeMinutes % 60
-        val subText = if (item.type == PlatformType.N3DS || item.type == PlatformType.NDS) {
+        val subText = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
+            "" // 3DS原系统模式：仅保留主标题，彻底去除简介与统计，最大化留白给 3D 横幅动画
+        } else if (item.type == PlatformType.N3DS || item.type == PlatformType.NDS) {
             val subClean = item.subtitle.trim()
             val pubClean = item.publisher.trim()
             val metaPrefix = when {
@@ -2963,16 +2990,25 @@ class UpperScreenView @JvmOverloads constructor(
         h: Float,
         stageBottomY: Float,
         title: String,
-        subtitle: String,
-        platformBadge: String,
-        badgeColor: Int
+        subtitle: String = "",
+        platformBadge: String = "",
+        badgeColor: Int = Color.TRANSPARENT
     ) {
+        val hasSubtitle = subtitle.isNotBlank()
         val accentColor = selectedSlot?.primaryColor ?: badgeColor
-        val plateW = (w * 0.74f).coerceIn(520f, 1380f)
-        val plateH = (h * 0.195f).coerceIn(88f, 142f)
+        val plateW = if (hasSubtitle) {
+            (w * 0.74f).coerceIn(520f, 1380f)
+        } else {
+            (w * 0.68f).coerceIn(460f, 1200f)
+        }
+        val plateH = if (hasSubtitle) {
+            (h * 0.195f).coerceIn(88f, 142f)
+        } else {
+            (h * 0.115f).coerceIn(52f, 76f)
+        }
         val left = (w - plateW) / 2f
-        val top = (stageBottomY + h * 0.018f).coerceAtMost(h - plateH - h * 0.015f)
-        val radius = plateH * 0.46f
+        val top = (stageBottomY + h * 0.015f).coerceAtMost(h - plateH - h * 0.012f)
+        val radius = plateH * 0.48f
         rect.set(left, top, left + plateW, top + plateH)
 
         // 1. 左右向两侧远端柔和羽化消融的流光翼带（让标题区彻底融入整个上屏空间，不再像孤立贴纸）
@@ -3076,17 +3112,25 @@ class UpperScreenView @JvmOverloads constructor(
             )
         }
 
-        // 6. 第一行：居中游戏主标题（两侧点缀 3DS 菱形星芒，精致适中字号）
+        // 6. 第一行：居中游戏主标题（两侧点缀 3DS 菱形星芒，单行纯标题模式下字号适度加大且垂直绝对居中）
         val titleColor = if (isDarkTheme) Color.WHITE else Color.parseColor("#162232")
         textPaint.color = titleColor
         textPaint.typeface = apolloMediumTypeface
         textPaint.isFakeBoldText = false
-        val titleFontSize = (plateH * 0.32f).coerceIn(22f, 38f)
+        val titleFontSize = if (hasSubtitle) {
+            (plateH * 0.32f).coerceIn(22f, 38f)
+        } else {
+            (plateH * 0.46f).coerceIn(26f, 40f)
+        }
         textPaint.textSize = titleFontSize
         textPaint.textAlign = Paint.Align.CENTER
         val maxTextW = plateW * 0.90f
         val cleanTitle = ellipsize(title, textPaint, maxTextW - 52f)
-        val titleY = rect.top + plateH * 0.46f
+        val titleY = if (hasSubtitle) {
+            rect.top + plateH * 0.46f
+        } else {
+            rect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2f
+        }
         canvas.drawText(
             cleanTitle,
             rect.centerX(),
@@ -3100,19 +3144,21 @@ class UpperScreenView @JvmOverloads constructor(
         textPaint.textSize = diamondSize
         textPaint.color = blendColor(accentColor, currentTheme.cursorMainColor, 0.4f)
         textPaint.alpha = 185
-        canvas.drawText("◆", rect.centerX() - halfTitleW - 16f, titleY - 2f, textPaint)
-        canvas.drawText("◆", rect.centerX() + halfTitleW + 16f, titleY - 2f, textPaint)
+        canvas.drawText("◆", rect.centerX() - halfTitleW - 16f, titleY, textPaint)
+        canvas.drawText("◆", rect.centerX() + halfTitleW + 16f, titleY, textPaint)
         textPaint.alpha = 255
 
-        // 7. 第二行：居中展示发行商与游玩记录（使用 Apollo 优雅细字体）
-        val subFontSize = (plateH * 0.19f).coerceIn(14f, 22f)
-        textPaint.typeface = apolloRegularTypeface
-        textPaint.isFakeBoldText = false
-        textPaint.textSize = subFontSize
-        textPaint.color = if (isDarkTheme) Color.parseColor("#CBD5E1") else Color.parseColor("#475569")
-        textPaint.textAlign = Paint.Align.CENTER
-        val subY = rect.top + plateH * 0.81f
-        canvas.drawText(ellipsize(subtitle, textPaint, maxTextW), rect.centerX(), subY, textPaint)
+        // 7. 第二行：居中展示发行商与游玩记录（仅在存在副标题时渲染）
+        if (hasSubtitle) {
+            val subFontSize = (plateH * 0.19f).coerceIn(14f, 22f)
+            textPaint.typeface = apolloRegularTypeface
+            textPaint.isFakeBoldText = false
+            textPaint.textSize = subFontSize
+            textPaint.color = if (isDarkTheme) Color.parseColor("#CBD5E1") else Color.parseColor("#475569")
+            textPaint.textAlign = Paint.Align.CENTER
+            val subY = rect.top + plateH * 0.81f
+            canvas.drawText(ellipsize(subtitle, textPaint, maxTextW), rect.centerX(), subY, textPaint)
+        }
 
         // 恢复默认 bold typeface
         textPaint.typeface = boldTypeface
