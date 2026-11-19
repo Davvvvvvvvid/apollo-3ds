@@ -812,21 +812,24 @@ class UpperScreenView @JvmOverloads constructor(
             cgfxWebBannerView.clearBanner()
             return
         }
-        // 在「3DS原系统效果」模式下，优先呈现 3DS 原机 CGFX 3D 横幅（仅当存在预渲染 bannerAnimationPath 时让位于视频）；其他模式优先播 video.mp4
+        // 在「3DS原系统效果」模式下，优先呈现 3DS 原机 CGFX 3D 横幅，不被任何视频覆盖；若不能提取 3DS 动画则回退为居中 Logo
         val isSystem3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
         val hasVideoOverride = if (isSystem3dsMode) {
-            item.bannerAnimationPath.isNotBlank()
+            false
         } else {
             item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank()
         }
         if (hasVideoOverride || !is3dsSlot(item)) {
             isCgfxBannerActive = false
-            isCgfxFallbackLogo = isSystem3dsMode && !hasVideoOverride
+            isCgfxFallbackLogo = isSystem3dsMode
             cgfxBannerView.visibility = View.GONE
             cgfxWebBannerView.visibility = View.GONE
             cgfxWebBannerView.clearBanner()
-            cgfxWebBannerView.visibility = View.GONE
-            cgfxWebBannerView.clearBanner()
+            if (isCgfxFallbackLogo) {
+                stopAndReleaseVideoPlayer()
+                videoTextureView.alpha = 0f
+                invalidate()
+            }
             return
         }
         isCgfxFallbackLogo = false
@@ -914,9 +917,11 @@ class UpperScreenView @JvmOverloads constructor(
                             isCgfxBannerActive = true
                             invalidate()
                         } else if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
-                            // 未提取到有效 3D 横幅元素时，自动回退为居中 Logo 图片模式
+                            // 未提取到有效 3D 横幅元素时，自动回退为居中 Logo 图片模式（严禁播放视频）
                             isCgfxBannerActive = false
                             isCgfxFallbackLogo = true
+                            stopAndReleaseVideoPlayer()
+                            videoTextureView.alpha = 0f
                             cgfxBannerView.visibility = View.GONE
                             cgfxWebBannerView.visibility = View.GONE
                             cgfxWebBannerView.clearBanner()
@@ -932,7 +937,11 @@ class UpperScreenView @JvmOverloads constructor(
                     if (selectedSlot?.id == targetId && upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
                         isCgfxBannerActive = false
                         isCgfxFallbackLogo = true
+                        stopAndReleaseVideoPlayer()
+                        videoTextureView.alpha = 0f
                         cgfxBannerView.visibility = View.GONE
+                        cgfxWebBannerView.visibility = View.GONE
+                        cgfxWebBannerView.clearBanner()
                         invalidate()
                     }
                 }
@@ -947,11 +956,11 @@ class UpperScreenView @JvmOverloads constructor(
             return
         }
         val item = selectedSlot
-        if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && item != null &&
-            item.bannerAnimationPath.isBlank() &&
-            (isCgfxBannerActive || item.cgfxPath.isNotBlank())
-        ) {
+        if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS || (item != null && is3dsSlot(item))) {
+            // 3DS 原系统模式与 3DS ROM：严禁播放视频（若无法提取 3D CGFX 动画则居中显示游戏大 Logo）
             stopAndReleaseVideoPlayer()
+            videoTextureView.alpha = 0f
+            videoTextureView.translationX = -9999f
             return
         }
         val targetVideo = if (isHostResumed && isStageApplet(activeApplet) && item != null && item.type != PlatformType.EMPTY) {
@@ -1214,7 +1223,7 @@ class UpperScreenView @JvmOverloads constructor(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive && !isVideoFrameReady && isCgfxFallbackLogo
+        val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive
         val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE || isCgfxFallbackLogoMode)
         if (isCenteredLogoMode || !isVideoPreviewEnabled) {
             videoTextureView.alpha = 0f
@@ -2203,7 +2212,7 @@ class UpperScreenView @JvmOverloads constructor(
                 return
             }
 
-            val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive && !isVideoFrameReady && isCgfxFallbackLogo
+            val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive
             val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE || isCgfxFallbackLogoMode)
             if (isCenteredLogoMode) {
                 // 👑 居中 Logo 展台：支持「纯Logo极简」、「Logo+纯文字标题」以及未提取到 3D Banner 时的自动回退
