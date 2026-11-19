@@ -2058,15 +2058,19 @@ class UpperScreenView @JvmOverloads constructor(
             currentTheme.cursorMainColor
         }
 
-        // 中心环绕声波圆环动画
-        for (ring in 1..3) {
-            val ringPhase = (animPhase * 0.65f + ring * 0.33f) % 1f
-            val ringRadius = (minOf(w, h) * 0.22f) + ringPhase * (minOf(w, h) * 0.28f)
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 2.2f * (1f - ringPhase)
-            paint.color = blendColor(currentTheme.cursorMainColor, accentColor, 0.35f)
-            paint.alpha = ((1f - ringPhase) * 90).toInt().coerceIn(0, 255)
-            canvas.drawCircle(stageCenterX, stageCenterY + floatY, ringRadius, paint)
+        val isPure3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) || isCgfxBannerActive
+
+        // 中心环绕声波圆环动画（3DS 原系统模式与 3D 横幅模式下禁用，保持纯净舞台背景）
+        if (!isPure3dsMode) {
+            for (ring in 1..3) {
+                val ringPhase = (animPhase * 0.65f + ring * 0.33f) % 1f
+                val ringRadius = (minOf(w, h) * 0.22f) + ringPhase * (minOf(w, h) * 0.28f)
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 2.2f * (1f - ringPhase)
+                paint.color = blendColor(currentTheme.cursorMainColor, accentColor, 0.35f)
+                paint.alpha = ((1f - ringPhase) * 90).toInt().coerceIn(0, 255)
+                canvas.drawCircle(stageCenterX, stageCenterY + floatY, ringRadius, paint)
+            }
         }
         paint.style = Paint.Style.FILL
         paint.alpha = 255
@@ -2116,38 +2120,40 @@ class UpperScreenView @JvmOverloads constructor(
         // 解除原本 460px 的高度上限，将中央舞台与视频窗口大幅放大至上屏可用高度的 68%
         val stageH = ((h - topBarH) * 0.68f).coerceIn(180f, h * 0.72f) * bannerPopScale
 
-        // 绘制 3D 透视地面上的全息渐变能量光环底座
-        val pedestalY = stageCenterY + stageH * 0.52f
-        val pedRx = stageH * 1.32f
-        val pedRy = stageH * 0.13f
-        canvas.save()
-        canvas.translate(stageCenterX + tiltX * 0.3f, pedestalY)
-        canvas.scale(1f, pedRy / pedRx)
-        paint.style = Paint.Style.FILL
-        paint.shader = RadialGradient(
-            0f, 0f, pedRx,
-            intArrayOf(
-                Color.argb(55, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
-                Color.argb(30, 15, 28, 46),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(0f, 0.55f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawCircle(0f, 0f, pedRx, paint)
-        paint.shader = null
+        // 绘制 3D 透视地面上的全息渐变能量光环底座（3DS 原系统模式与 3D 横幅模式下禁用）
+        if (!isPure3dsMode) {
+            val pedestalY = stageCenterY + stageH * 0.52f
+            val pedRx = stageH * 1.32f
+            val pedRy = stageH * 0.13f
+            canvas.save()
+            canvas.translate(stageCenterX + tiltX * 0.3f, pedestalY)
+            canvas.scale(1f, pedRy / pedRx)
+            paint.style = Paint.Style.FILL
+            paint.shader = RadialGradient(
+                0f, 0f, pedRx,
+                intArrayOf(
+                    Color.argb(55, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
+                    Color.argb(30, 15, 28, 46),
+                    Color.TRANSPARENT
+                ),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(0f, 0f, pedRx, paint)
+            paint.shader = null
 
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 6f
-        paint.color = blendColor(currentTheme.cursorGlowColor, Color.WHITE, 0.4f)
-        paint.alpha = 85
-        canvas.drawCircle(0f, 0f, pedRx * 0.78f, paint)
-        paint.strokeWidth = 4f
-        paint.alpha = 45
-        canvas.drawCircle(0f, 0f, pedRx * 0.96f, paint)
-        paint.style = Paint.Style.FILL
-        paint.alpha = 255
-        canvas.restore()
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 6f
+            paint.color = blendColor(currentTheme.cursorGlowColor, Color.WHITE, 0.4f)
+            paint.alpha = 85
+            canvas.drawCircle(0f, 0f, pedRx * 0.78f, paint)
+            paint.strokeWidth = 4f
+            paint.alpha = 45
+            canvas.drawCircle(0f, 0f, pedRx * 0.96f, paint)
+            paint.style = Paint.Style.FILL
+            paint.alpha = 255
+            canvas.restore()
+        }
 
         val isGameItem = item.type != PlatformType.EMPTY && item.type != PlatformType.FOLDER && item.type != PlatformType.BADGE
         if (isGameItem && hasMediaShowcase) {
