@@ -171,7 +171,7 @@ function picaEqToThree(eq) {
   }
 }
 
-function buildPicaShaderMaterial(pica, gltfTextures, hasSkinning, hasAuthoredLight) {
+function buildPicaShaderMaterial(pica, gltfTextures, hasCol, hasAuthoredLight) {
   const tus = pica.textureUnits || [];
   const state = pica.state || {};
   const colors = pica.colors || [];
@@ -215,15 +215,6 @@ function buildPicaShaderMaterial(pica, gltfTextures, hasSkinning, hasAuthoredLig
     varying vec2 vUv2;
     varying vec4 vColor;
     varying vec3 vViewNormal;
-    #ifdef USE_UV1
-      attribute vec2 uv1;
-    #endif
-    #ifdef USE_UV2
-      attribute vec2 uv2;
-    #endif
-    #ifndef USE_COLOR
-      // fallback if no COLOR_0
-    #endif
     #include <common>
     #include <skinning_pars_vertex>
     void main() {
@@ -282,7 +273,7 @@ function buildPicaShaderMaterial(pica, gltfTextures, hasSkinning, hasAuthoredLig
       vec3 nView = normalize(vViewNormal);
       float ndotl = ${hasAuthoredLight ? '0.75' : 'max(dot(nView, normalize(vec3(0.15, 0.35, 0.92))), 0.0)'};
       vec4 FragPriColor = ${fragLit
-        ? `vec4(clamp(${em}.rgb + ${amb}.rgb * 0.45 + ${diff}.rgb * (0.30 + 0.65 * ndotl), 0.0, 1.0), clamp(${diff}.a, 0.0, 1.0))`
+        ? `vec4(clamp(${em}.rgb + ${amb}.rgb * 0.45 + ${diff}.rgb * (0.55 + 0.45 * ndotl), 0.0, 1.0), clamp(${diff}.a, 0.0, 1.0))`
         : `vec4(clamp(${em}.rgb + ${amb}.rgb * 0.45 + ${diff}.rgb * 0.55, 0.0, 1.0), clamp(${diff}.a, 0.0, 1.0))`};
       vec4 FragSecColor = vec4(0.0, 0.0, 0.0, 1.0);
       vec4 Previous = vec4(1.0);
@@ -341,7 +332,7 @@ function buildPicaShaderMaterial(pica, gltfTextures, hasSkinning, hasAuthoredLig
     uniforms,
     vertexShader: vs,
     fragmentShader: fs,
-    skinning: hasSkinning,
+    vertexColors: hasCol,
     transparent: !!(state.blend && state.blend.enabled) || (pica.translucencyKind > 0),
     depthTest: state.depth ? (state.depth.enabled !== false) : true,
     depthWrite: state.depth ? (state.depth.writeEnabled !== false) : true,
@@ -400,70 +391,68 @@ window.loadCgfxBase64 = async function(b64) {
     const glbLen = mem.getUint32(outPtr, true);
     const glbBytes = new Uint8Array(wasm.memory.buffer, outPtr + 4, glbLen).slice();
 
-    loader.parse(glbBytes.buffer, '', async (gltf) => {
-      if (token !== loadToken) return;
-      clearCurrent();
+    const gltf = await loader.parseAsync(glbBytes.buffer, '');
+    if (token !== loadToken) return;
+    clearCurrent();
 
-      const json = gltf.parser && gltf.parser.json ? gltf.parser.json : {};
-      const texDefs = json.textures || [];
-      const gltfTextures = await Promise.all(texDefs.map((_, i) => gltf.parser.getDependency('texture', i).catch(() => null)));
-      if (token !== loadToken) return;
+    const json = gltf.parser && gltf.parser.json ? gltf.parser.json : {};
+    const texDefs = json.textures || [];
+    const gltfTextures = await Promise.all(texDefs.map((_, i) => gltf.parser.getDependency('texture', i).catch(() => null)));
+    if (token !== loadToken) return;
 
-      const matDefs = json.materials || [];
-      const hasAuthoredLight = !!(json.extensions && json.extensions.EXT_cgfx_pica && Array.isArray(json.extensions.EXT_cgfx_pica.lights) && json.extensions.EXT_cgfx_pica.lights.length > 0);
-      const customMats = new Map();
+    const matDefs = json.materials || [];
+    const hasAuthoredLight = !!(json.extensions && json.extensions.EXT_cgfx_pica && Array.isArray(json.extensions.EXT_cgfx_pica.lights) && json.extensions.EXT_cgfx_pica.lights.length > 0);
+    const customMats = new Map();
 
-      gltf.scene.traverse((o) => {
-        if (!o.isMesh) return;
-        const g = o.geometry;
-        const hasUv1 = !!(g && g.getAttribute('uv1'));
-        const hasUv2 = !!(g && g.getAttribute('uv2'));
-        const hasCol = !!(g && g.getAttribute('color'));
-        const mList = Array.isArray(o.material) ? o.material : [o.material];
-        const outMats = mList.map((origMat) => {
-          const idx = matDefs.findIndex(md => md && md.name === origMat.name);
-          const pica = idx >= 0 && matDefs[idx].extensions ? matDefs[idx].extensions.EXT_cgfx_pica : null;
-          if (!pica) return origMat;
-          const key = `${idx}_${!!o.isSkinnedMesh}_${hasUv1}_${hasUv2}_${hasCol}`;
-          if (!customMats.has(key)) {
-            const cm = buildPicaShaderMaterial(pica, gltfTextures, !!o.isSkinnedMesh, hasAuthoredLight);
-            if (hasUv1) cm.defines.USE_UV1 = 1;
-            if (hasUv2) cm.defines.USE_UV2 = 1;
-            if (hasCol) cm.defines.HAS_VCOLOR = 1;
-            cm.needsUpdate = true;
-            customMats.set(key, cm);
-          }
-          return customMats.get(key);
-        });
-        o.material = Array.isArray(o.material) ? outMats : outMats[0];
+    gltf.scene.traverse((o) => {
+      if (!o.isMesh) return;
+      const g = o.geometry;
+      const hasUv1 = !!(g && g.getAttribute('uv1'));
+      const hasUv2 = !!(g && g.getAttribute('uv2'));
+      const hasCol = !!(g && g.getAttribute('color'));
+      const mList = Array.isArray(o.material) ? o.material : [o.material];
+      const outMats = mList.map((origMat) => {
+        const idx = matDefs.findIndex(md => md && md.name === origMat.name);
+        const pica = idx >= 0 && matDefs[idx].extensions ? matDefs[idx].extensions.EXT_cgfx_pica : null;
+        if (!pica) return origMat;
+        const key = `${idx}_${!!o.isSkinnedMesh}_${hasUv1}_${hasUv2}_${hasCol}`;
+        if (!customMats.has(key)) {
+          const cm = buildPicaShaderMaterial(pica, gltfTextures, hasCol, hasAuthoredLight);
+          if (hasUv1) cm.defines.USE_UV1 = 1;
+          if (hasUv2) cm.defines.USE_UV2 = 1;
+          if (hasCol) cm.defines.HAS_VCOLOR = 1;
+          cm.needsUpdate = true;
+          customMats.set(key, cm);
+        }
+        return customMats.get(key);
       });
-
-      activeRoot = gltf.scene;
-      scene.add(activeRoot);
-
-      if (gltf.cameras && gltf.cameras.length > 0) {
-        const cam = gltf.cameras.find(c => c.name && c.name.includes('HOME')) || gltf.cameras[0];
-        if (cam && cam.isPerspectiveCamera) {
-          activeCamera = cam;
-          activeCamera.aspect = window.innerWidth / Math.max(1, window.innerHeight);
-          activeCamera.updateProjectionMatrix();
-        }
-      }
-
-      if (gltf.animations && gltf.animations.length > 0) {
-        mixer = new THREE.AnimationMixer(activeRoot);
-        for (const clip of gltf.animations) {
-          const action = mixer.clipAction(clip);
-          if (clip.name && clip.name.includes('HOME Menu Spin')) {
-            action.timeScale = 0.6;
-          }
-          action.play();
-        }
-      }
-      clock.getDelta();
-    }, () => {
-      clearCurrent();
+      o.material = Array.isArray(o.material) ? outMats : outMats[0];
     });
+
+    activeRoot = gltf.scene;
+    scene.add(activeRoot);
+
+    if (gltf.cameras && gltf.cameras.length > 0) {
+      const cam = gltf.cameras.find(c => c.name && c.name.includes('HOME')) || gltf.cameras[0];
+      if (cam && cam.isPerspectiveCamera) {
+        activeCamera = cam;
+        activeCamera.aspect = window.innerWidth / Math.max(1, window.innerHeight);
+        activeCamera.updateProjectionMatrix();
+      }
+    }
+
+    if (gltf.animations && gltf.animations.length > 0) {
+      mixer = new THREE.AnimationMixer(activeRoot);
+      for (const clip of gltf.animations) {
+        const action = mixer.clipAction(clip);
+        if (clip.name && clip.name.includes('HOME Menu Spin')) {
+          action.timeScale = 0.6;
+        }
+        action.play();
+      }
+    }
+    clock.getDelta();
+    renderer.render(scene, activeCamera);
   } catch (e) {
     console.error(e);
     clearCurrent();
