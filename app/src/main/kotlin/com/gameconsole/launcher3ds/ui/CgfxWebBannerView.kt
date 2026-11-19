@@ -3,32 +3,78 @@ package com.gameconsole.launcher3ds.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
-import android.net.Uri
 import android.util.AttributeSet
-import android.util.Base64
+import android.util.Log
+import android.view.MotionEvent
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.InputStream
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 复刻 3DSLauncher-0.1.20 架构的 WebView + WASM + Three.js 3DS 横幅渲染视图：
- * 使用 Rust 编译的 decoder.wasm 实时将 CGFX 转为带 EXT_cgfx_pica 的 GLB，
- * 并通过 Three.js + 自定义 PICA ShaderMaterial 播放原机动画与材质通道。
+ * 🎮 深度复刻 3DSLauncher-0.1.20 架构的 3D 横幅渲染视图：
+ * 采用原生 WebGL + WASM (decoder.wasm) + Three.js (runtime.js)，
+ * 通过直接拦截虚拟资源域 `https://appassets.androidplatform.net/ctr-banner/`，
+ * 以高效流传输提供 CGFX 数据并调用 `window.dsosBanner` API，
+ * 支持原机动画循环、PICA 着色器、Matcap 反射以及水平手势触控旋转联动。
  */
 @SuppressLint("SetJavaScriptEnabled")
 class CgfxWebBannerView @JvmOverloads constructor(
     context: Context,
-    attrs: AttributeSet? = null
-) : FrameLayout(context, attrs) {
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : FrameLayout(context, attrs, defStyleAttr) {
+
+    private val TAG = "CgfxWebBannerView"
 
     private val webView = WebView(context)
     private var pageLoaded = false
-    private var pendingBase64: String? = null
-    private var lastLoadedKey: String? = null
+
+    // 内存中缓存当前待加载或正在展示的 CGFX 数据流
+    private val modelDataMap = ConcurrentHashMap<String, ByteArray>()
+    private var activeModelId: String? = null
+    private var activeTitle: String = ""
+    private var pendingLoadId: String? = null
+
+    // 手势触控旋转交互状态
+    private var startTouchX: Float = 0f
+    private var currentSpinAngle: Float = 0f
+    private var isDragging: Boolean = false
+
+    var onBannerReady: ((String) -> Unit)? = null
+    var onBannerError: ((String, String) -> Unit)? = null
+
+    inner class NativeBannerBridge {
+        @JavascriptInterface
+        fun report(id: String, type: String, message: String) {
+            Log.i(TAG, "NativeBanner event: id=$id, type=$type, message=$message")
+            when (type) {
+                "boot" -> {
+                    post { warmAndResize() }
+                }
+                "ready" -> {
+                    post {
+                        webView.alpha = 1.0f
+                        onBannerReady?.invoke(id)
+                    }
+                }
+                "error" -> {
+                    post {
+                        onBannerError?.invoke(id, message)
+                    }
+                }
+            }
+        }
+    }
 
     init {
         setBackgroundColor(Color.TRANSPARENT)
@@ -38,14 +84,19 @@ class CgfxWebBannerView @JvmOverloads constructor(
         webView.isHorizontalScrollBarEnabled = false
         webView.isClickable = false
         webView.isFocusable = false
-        webView.setOnTouchListener { _, _ -> true }
 
         val s = webView.settings
         s.javaScriptEnabled = true
-        s.domStorageEnabled = true
+        s.domStorageEnabled = false
         s.allowFileAccess = false
         s.allowContentAccess = false
-        s.cacheMode = WebSettings.LOAD_DEFAULT
+        s.blockNetworkLoads = true
+        s.mediaPlaybackRequiresUserGesture = true
+        s.cacheMode = WebSettings.LOAD_NO_CACHE
+        s.setSupportZoom(false)
+
+        webView.addJavascriptInterface(NativeBannerBridge(), "NativeBanner")
+        webView.webChromeClient = WebChromeClient()
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(
@@ -55,17 +106,44 @@ class CgfxWebBannerView @JvmOverloads constructor(
                 val url = request?.url ?: return null
                 if (url.host != "appassets.androidplatform.net") return null
                 val path = url.path ?: return null
-                if (!path.startsWith("/ctr-banner/")) return null
-                val assetPath = path.removePrefix("/")
-                return openAssetResponse(assetPath)
+
+                // 1. 动态拦截模型请求: /ctr-banner/model/<id>.cgfx
+                if (path.startsWith("/ctr-banner/model/")) {
+                    val rawName = path.substringAfter("/ctr-banner/model/").removeSuffix(".cgfx")
+                    val modelBytes = modelDataMap[rawName]
+                    if (modelBytes != null) {
+                        val headers = mapOf(
+                            "Access-Control-Allow-Origin" to "https://appassets.androidplatform.net",
+                            "Cache-Control" to "no-store"
+                        )
+                        return WebResourceResponse(
+                            "application/octet-stream",
+                            null,
+                            200,
+                            "OK",
+                            headers,
+                            ByteArrayInputStream(modelBytes)
+                        )
+                    }
+                    return WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", null, null)
+                }
+
+                // 2. 静态离线资产拦截: /ctr-banner/index.html, runtime.js, decoder.wasm
+                if (path.startsWith("/ctr-banner/")) {
+                    val assetPath = path.removePrefix("/")
+                    return openAssetResponse(assetPath)
+                }
+
+                return null
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 pageLoaded = true
-                val b64 = pendingBase64
-                if (b64 != null) {
-                    pendingBase64 = null
-                    dispatchLoadBase64(b64)
+                warmAndResize()
+                val targetId = pendingLoadId
+                if (targetId != null) {
+                    pendingLoadId = null
+                    dispatchLoad(targetId, activeTitle)
                 }
             }
         }
@@ -85,45 +163,130 @@ class CgfxWebBannerView @JvmOverloads constructor(
             assetPath.endsWith(".js") -> "application/javascript"
             assetPath.endsWith(".wasm") -> "application/wasm"
             assetPath.endsWith(".json") -> "application/json"
+            assetPath.endsWith(".wav") -> "audio/wav"
             else -> "application/octet-stream"
         }
-        val headers = mapOf("Access-Control-Allow-Origin" to "*")
-        return WebResourceResponse(mime, "UTF-8", 200, "OK", headers, stream)
+        val headers = mapOf(
+            "Access-Control-Allow-Origin" to "https://appassets.androidplatform.net",
+            "Cache-Control" to "no-store"
+        )
+        val encoding = if (mime.startsWith("text/") || mime == "application/javascript" || mime == "application/json") "UTF-8" else null
+        return WebResourceResponse(mime, encoding, 200, "OK", headers, stream)
     }
 
-    fun setCgfxBytes(key: String, bytes: ByteArray?) {
-        if (bytes == null || bytes.size < 16) {
-            clearBanner()
-            return
-        }
-        if (lastLoadedKey == key) return
-        lastLoadedKey = key
-        val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        if (pageLoaded) {
-            dispatchLoadBase64(b64)
-        } else {
-            pendingBase64 = b64
+    private fun warmAndResize() {
+        if (!pageLoaded) return
+        val w = if (width > 0) width else 400
+        val h = if (height > 0) height else 240
+        webView.post {
+            webView.evaluateJavascript(
+                "window.dsosBanner && (window.dsosBanner.warm(), window.dsosBanner.viewport($w, $h));",
+                null
+            )
         }
     }
 
-    fun clearBanner() {
-        lastLoadedKey = null
-        pendingBase64 = null
-        if (pageLoaded) {
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w > 0 && h > 0 && pageLoaded) {
             webView.post {
-                webView.evaluateJavascript("window.clearBanner && window.clearBanner();", null)
+                webView.evaluateJavascript("window.dsosBanner && window.dsosBanner.viewport($w, $h);", null)
             }
         }
     }
 
-    private fun dispatchLoadBase64(b64: String) {
-        webView.post {
-            webView.evaluateJavascript("window.loadCgfxBase64 && window.loadCgfxBase64('$b64');", null)
+    fun setCgfxBytes(key: String, bytes: ByteArray?, title: String = "") {
+        if (bytes == null || bytes.size < 16) {
+            clearBanner()
+            return
+        }
+
+        val safeKey = key.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        if (activeModelId == safeKey && modelDataMap.containsKey(safeKey)) {
+            return
+        }
+
+        modelDataMap[safeKey] = bytes
+        activeModelId = safeKey
+        activeTitle = title
+        webView.alpha = 0f
+
+        if (pageLoaded) {
+            dispatchLoad(safeKey, title)
+        } else {
+            pendingLoadId = safeKey
         }
     }
 
+    private fun dispatchLoad(safeKey: String, title: String) {
+        val localeTag = Locale.getDefault().toLanguageTag()
+        val quotedId = JSONObject.quote(safeKey)
+        val quotedLocale = JSONObject.quote(localeTag)
+        val quotedTitle = JSONObject.quote(title.ifBlank { safeKey })
+        val w = if (width > 0) width else 400
+        val h = if (height > 0) height else 240
+
+        webView.post {
+            val js = "window.dsosBanner && (window.dsosBanner.viewport($w, $h), window.dsosBanner.configure(true, true), window.dsosBanner.load($quotedId, true, $quotedLocale, $quotedTitle));"
+            webView.evaluateJavascript(js, null)
+        }
+    }
+
+    fun clearBanner() {
+        activeModelId = null
+        pendingLoadId = null
+        webView.alpha = 0f
+        if (pageLoaded) {
+            webView.post {
+                webView.evaluateJavascript("window.dsosBanner && window.dsosBanner.retire(true);", null)
+            }
+        }
+    }
+
+    fun setRotationAngle(angleRad: Float) {
+        currentSpinAngle = angleRad
+        if (pageLoaded) {
+            webView.post {
+                webView.evaluateJavascript("window.dsosBanner && window.dsosBanner.spin($angleRad);", null)
+            }
+        }
+    }
+
+    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
+        return true
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                startTouchX = event.x
+                isDragging = true
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isDragging) {
+                    val dx = event.x - startTouchX
+                    val deltaAngle = (dx / (width.coerceAtLeast(1) * 0.5f)) * Math.PI.toFloat()
+                    setRotationAngle(currentSpinAngle + deltaAngle)
+                    startTouchX = event.x
+                }
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isDragging = false
+                return true
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
     fun destroyView() {
+        if (pageLoaded) {
+            webView.evaluateJavascript("window.dsosBanner && window.dsosBanner.dispose();", null)
+        }
         webView.stopLoading()
         webView.destroy()
+        modelDataMap.clear()
     }
 }

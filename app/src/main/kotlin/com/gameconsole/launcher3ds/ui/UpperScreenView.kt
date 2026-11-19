@@ -289,7 +289,7 @@ class UpperScreenView @JvmOverloads constructor(
             }
         }
 
-    var cgfxRenderEngine: CgfxRenderEngine = CgfxRenderEngine.SPICA
+    var cgfxRenderEngine: CgfxRenderEngine = CgfxRenderEngine.WASM_THREE
         set(value) {
             if (field != value) {
                 field = value
@@ -422,6 +422,9 @@ class UpperScreenView @JvmOverloads constructor(
     private val videoTextureView: TextureView
     private val cgfxBannerView: CgfxGLBannerView
     private val cgfxWebBannerView: CgfxWebBannerView
+    private var topStillBitmap: Bitmap? = null
+    private val batteryBitmaps = arrayOfNulls<Bitmap>(5)
+    private var batteryChargeBitmap: Bitmap? = null
     @Volatile
     private var isCgfxBannerActive: Boolean = false
     @Volatile
@@ -534,8 +537,25 @@ class UpperScreenView @JvmOverloads constructor(
 
         cgfxWebBannerView = CgfxWebBannerView(context).apply {
             visibility = View.GONE
+            onBannerReady = {
+                postInvalidate()
+            }
         }
         addView(cgfxWebBannerView, LayoutParams(baseTextureW, baseTextureH))
+
+        try {
+            context.assets.open("3ds_art/top-still.png").use { stream ->
+                topStillBitmap = BitmapFactory.decodeStream(stream)
+            }
+            for (i in 0..4) {
+                context.assets.open("3ds_art/battery$i.png").use { stream ->
+                    batteryBitmaps[i] = BitmapFactory.decodeStream(stream)
+                }
+            }
+            context.assets.open("3ds_art/batterycharge.png").use { stream ->
+                batteryChargeBitmap = BitmapFactory.decodeStream(stream)
+            }
+        } catch (_: Throwable) {}
     }
 
     override fun onAttachedToWindow() {
@@ -830,19 +850,28 @@ class UpperScreenView @JvmOverloads constructor(
                 val useWasmThree = (cgfxRenderEngine == CgfxRenderEngine.WASM_THREE)
                 val useSpicaLike = (cgfxRenderEngine == CgfxRenderEngine.SPICA || cgfxRenderEngine == CgfxRenderEngine.PICA_HOME)
                 val useHomeMenuFixes = (cgfxRenderEngine == CgfxRenderEngine.PICA_HOME)
-                val wasmCgfxBytes = if (useWasmThree && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
-                    try { File(cgfxPath).readBytes().takeIf { it.size >= 16 } } catch (_: Throwable) { null }
+                val cgfxRawBytes = if (cgfxPath.isNotBlank()) {
+                    try {
+                        if (cgfxPath.startsWith("asset://")) {
+                            val rel = cgfxPath.removePrefix("asset://").removePrefix("/")
+                            context.assets.open(rel).use { it.readBytes() }
+                        } else {
+                            File(cgfxPath).readBytes()
+                        }.takeIf { it.size >= 16 }
+                    } catch (_: Throwable) { null }
                 } else null
-                val spicaScene = if (useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+
+                val wasmCgfxBytes = if (useWasmThree) cgfxRawBytes else null
+                val spicaScene = if (useSpicaLike && cgfxRawBytes != null) {
                     val targetCache = if (useHomeMenuFixes) picaHomeSceneCache else spicaSceneCache
                     targetCache.get(cgfxPath)
-                        ?: com.gameconsole.launcher3ds.parser.SpicaCgfxParser.parseFile(File(cgfxPath), applyHomeMenuFixes = useHomeMenuFixes)?.also {
+                        ?: com.gameconsole.launcher3ds.parser.SpicaCgfxParser.parseBytes(cgfxRawBytes, applyHomeMenuFixes = useHomeMenuFixes)?.also {
                             targetCache.put(cgfxPath, it)
                         }
                 } else null
-                val legacyScene = if (!useWasmThree && !useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+                val legacyScene = if (!useWasmThree && !useSpicaLike && cgfxRawBytes != null) {
                     cgfxSceneCache.get(cgfxPath)
-                        ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseFile(File(cgfxPath))?.also {
+                        ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseBytes(cgfxRawBytes)?.also {
                             cgfxSceneCache.put(cgfxPath, it)
                         }
                 } else null
@@ -865,16 +894,19 @@ class UpperScreenView @JvmOverloads constructor(
                             when {
                                 useWasmThree -> {
                                     cgfxBannerView.visibility = View.GONE
-                                    cgfxWebBannerView.setCgfxBytes(cgfxPath, wasmCgfxBytes)
+                                    cgfxWebBannerView.visibility = View.VISIBLE
+                                    cgfxWebBannerView.setCgfxBytes(cgfxPath, wasmCgfxBytes, title = item.title)
                                 }
                                 useSpicaLike -> {
                                     cgfxWebBannerView.visibility = View.GONE
                                     cgfxWebBannerView.clearBanner()
+                                    cgfxBannerView.visibility = View.VISIBLE
                                     cgfxBannerView.setSpicaScene(spicaScene, homeMenuMode = useHomeMenuFixes)
                                 }
                                 else -> {
                                     cgfxWebBannerView.visibility = View.GONE
                                     cgfxWebBannerView.clearBanner()
+                                    cgfxBannerView.visibility = View.VISIBLE
                                     cgfxBannerView.setScene(legacyScene)
                                 }
                             }
@@ -917,7 +949,7 @@ class UpperScreenView @JvmOverloads constructor(
         val item = selectedSlot
         if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && item != null &&
             item.bannerAnimationPath.isBlank() &&
-            (isCgfxBannerActive || (item.cgfxPath.isNotBlank() && !item.cgfxPath.startsWith("asset://")))
+            (isCgfxBannerActive || item.cgfxPath.isNotBlank())
         ) {
             stopAndReleaseVideoPlayer()
             return
@@ -1513,6 +1545,11 @@ class UpperScreenView @JvmOverloads constructor(
 
     private fun drawUpperStageBackground(canvas: Canvas, w: Float, h: Float) {
         val item = selectedSlot
+        if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && topStillBitmap != null) {
+            val bgBmp = topStillBitmap!!
+            canvas.drawBitmap(bgBmp, null, RectF(0f, 0f, w, h), bitmapPaint)
+            return
+        }
         val accentColor = if (item != null && item.type != PlatformType.EMPTY) {
             item.primaryColor
         } else {
@@ -1886,15 +1923,43 @@ class UpperScreenView @JvmOverloads constructor(
         val cy = barH * 0.56f
         val pillH = barH * 0.68f
 
-        // 上屏顶部左侧已根据用户要求隐藏，不再显示任何状态胶囊与播放按键
         topAudioToggleRect.setEmpty()
 
         val isDarkSky = isColorDark(currentTheme.upperSkyTop)
         val primaryHudColor = if (isDarkSky) Color.WHITE else Color.parseColor("#1E293B")
         val pillBgAlphaColor = if (isDarkSky) Color.argb(55, 0, 0, 0) else Color.argb(85, 255, 255, 255)
 
-        // 3. 右上角：日期时间 + 3DS 四格立体电池（包裹在轻盈半透明胶囊中，电池正极朝右不遮挡文字）
+        // 1. 左上角：3DS 原机风格「互联网」状态胶囊与三阶信号波
+        val leftPillW = barH * 2.85f
+        val leftPillRect = RectF(14f, cy - pillH / 2f, 14f + leftPillW, cy + pillH / 2f)
+        paint.color = pillBgAlphaColor
+        canvas.drawRoundRect(leftPillRect, pillH / 2f, pillH / 2f, paint)
+
+        val sigX = leftPillRect.left + 14f
+        val sigBaseY = cy + pillH * 0.22f
+        val sigMaxH = pillH * 0.44f
+        for (i in 0..2) {
+            val barHeight = sigMaxH * (0.35f + i * 0.325f)
+            val barW = 3.2f
+            val bx = sigX + i * 6.2f
+            paint.color = Color.parseColor("#0EA5E9") // 3DS 标致电光天蓝
+            canvas.drawRoundRect(RectF(bx, sigBaseY - barHeight, bx + barW, sigBaseY), 1.5f, 1.5f, paint)
+        }
+        statusTextPaint.textSize = barH * 0.35f
+        statusTextPaint.color = primaryHudColor
+        statusTextPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("互联网", sigX + 24f, cy - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f, statusTextPaint)
+
+        // 2. 右上角：日期时间 + 3DS 原机四格立体电池 (优先绘制原生提取自 3DS 的 18x11 点阵贴图)
         val (batteryPct, isCharging) = readBatteryState()
+        val bars = when {
+            batteryPct >= 75 -> 4
+            batteryPct >= 50 -> 3
+            batteryPct >= 25 -> 2
+            batteryPct > 5 -> 1
+            else -> 0
+        }
+        val battBmp = if (isCharging) batteryChargeBitmap else batteryBitmaps[bars.coerceIn(0, 4)]
         val battW = barH * 1.15f
         val battH = barH * 0.50f
         statusTextPaint.textSize = barH * 0.37f
@@ -1908,39 +1973,41 @@ class UpperScreenView @JvmOverloads constructor(
         val battRight = rightPillRect.right - 16f
         val battLeft = battRight - battW
 
-        // 电池正极小帽（置于右侧）
-        rect.set(battRight, cy - battH * 0.26f, battRight + 3.5f, cy + battH * 0.26f)
-        paint.color = primaryHudColor
-        canvas.drawRoundRect(rect, 1.5f, 1.5f, paint)
+        if (battBmp != null) {
+            val bmpW = barH * 0.78f
+            val bmpH = bmpW * (battBmp.height.toFloat() / battBmp.width.toFloat())
+            val bmpLeft = rightPillRect.right - 16f - bmpW
+            val bmpTop = cy - bmpH / 2f
+            canvas.drawBitmap(battBmp, null, RectF(bmpLeft, bmpTop, bmpLeft + bmpW, bmpTop + bmpH), bitmapPaint)
+        } else {
+            // 电池正极小帽（置于右侧）
+            rect.set(battRight, cy - battH * 0.26f, battRight + 3.5f, cy + battH * 0.26f)
+            paint.color = primaryHudColor
+            canvas.drawRoundRect(rect, 1.5f, 1.5f, paint)
 
-        // 电池外框
-        rect.set(battLeft, cy - battH / 2f, battRight, cy + battH / 2f)
-        paint.color = Color.argb(65, 0, 0, 0)
-        canvas.drawRoundRect(rect, 3.5f, 3.5f, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1.8f
-        paint.color = primaryHudColor
-        canvas.drawRoundRect(rect, 3.5f, 3.5f, paint)
-        paint.style = Paint.Style.FILL
+            // 电池外框
+            rect.set(battLeft, cy - battH / 2f, battRight, cy + battH / 2f)
+            paint.color = Color.argb(65, 0, 0, 0)
+            canvas.drawRoundRect(rect, 3.5f, 3.5f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.8f
+            paint.color = primaryHudColor
+            canvas.drawRoundRect(rect, 3.5f, 3.5f, paint)
+            paint.style = Paint.Style.FILL
 
-        val bars = when {
-            batteryPct >= 75 -> 4
-            batteryPct >= 50 -> 3
-            batteryPct >= 25 -> 2
-            else -> 1
-        }
-        val barColor = when {
-            isCharging -> Color.parseColor("#FFA000")
-            bars == 1 -> Color.parseColor("#FF3B30")
-            else -> Color.parseColor("#00C8FF")
-        }
-        val innerPad = 2.5f
-        val segGap = 1.8f
-        val segW = (battW - innerPad * 2f - segGap * 3f) / 4f
-        paint.color = barColor
-        for (b in 0 until bars) {
-            val sx = battLeft + innerPad + b * (segW + segGap)
-            canvas.drawRect(sx, rect.top + innerPad, sx + segW, rect.bottom - innerPad, paint)
+            val barColor = when {
+                isCharging -> Color.parseColor("#FFA000")
+                bars == 1 -> Color.parseColor("#FF3B30")
+                else -> Color.parseColor("#00C8FF")
+            }
+            val innerPad = 2.5f
+            val segGap = 1.8f
+            val segW = (battW - innerPad * 2f - segGap * 3f) / 4f
+            paint.color = barColor
+            for (b in 0 until bars) {
+                val sx = battLeft + innerPad + b * (segW + segGap)
+                canvas.drawRect(sx, rect.top + innerPad, sx + segW, rect.bottom - innerPad, paint)
+            }
         }
 
         statusTextPaint.color = primaryHudColor
@@ -2398,11 +2465,17 @@ class UpperScreenView @JvmOverloads constructor(
             }
             if (!isVideoFrameReady && isCgfxBannerActive && isStageApplet(activeApplet) &&
                 upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
-                // 让 3D 实时横幅占据上屏中央最外层舞台区域（不受内圈约束，状态栏以下、标题胶囊以上）
-                val targetW = (width * 0.94f).toInt().coerceAtLeast(1)
-                val targetH = (height * 0.78f).toInt().coerceAtLeast(1)
+                // 让 3D 实时横幅以标准 5:3 原机比例居中占据中央舞台（状态栏以下、标题胶囊以上）
+                val availH = (height * 0.72f).coerceAtLeast(1f)
+                val maxW = (width * 0.94f).coerceAtLeast(1f)
+                var targetW = (availH * (5f / 3f)).toInt()
+                var targetH = availH.toInt()
+                if (targetW > maxW) {
+                    targetW = maxW.toInt()
+                    targetH = (targetW * (3f / 5f)).toInt()
+                }
                 val targetL = ((width - targetW) * 0.5f).toInt()
-                val targetT = (height * 0.03f).toInt()
+                val targetT = (topBarH + (height - topBarH - (height * 0.20f) - targetH) * 0.5f).toInt().coerceAtLeast(topBarH.toInt())
                 val lp = (activeCgfxView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
                 if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || activeCgfxView.visibility != View.VISIBLE) {
                     post {
@@ -2618,7 +2691,7 @@ class UpperScreenView @JvmOverloads constructor(
             }
 
             // 2. 右侧：大幅放大的影院级实机游戏画面/视频预览屏（若是 3DS 原系统悬浮 CGFX，则去掉白框与黑底直接悬浮于主题天空之上）
-            val hasCgfx3d = isCgfxBannerActive || (is3dsSlot(item) && item.cgfxPath.isNotBlank() && !item.cgfxPath.startsWith("asset://"))
+            val hasCgfx3d = isCgfxBannerActive || (is3dsSlot(item) && item.cgfxPath.isNotBlank())
             val isPure3dsFloatingCgfx = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) &&
                     !isVideoFrameReady && hasCgfx3d
 

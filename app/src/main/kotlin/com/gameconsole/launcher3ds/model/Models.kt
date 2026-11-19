@@ -1040,12 +1040,12 @@ enum class CgfxRenderEngine(
     val shortLabel: String,
     val desc: String
 ) {
-    SPICA(0, "🚀 SPICA 引擎 (推荐)", "SPICA引擎", "完整解析 PICA200 TEV 混合、UV 采样与材质通道"),
+    WASM_THREE(3, "⭐ 3DS 原机复刻 (WASM+Three 推荐)", "原机复刻", "复刻 3DS 原机架构：Rust WASM 解码 GLB + Three.js 实时执行 EXT_cgfx_pica 与原机动画循环"),
+    SPICA(0, "🚀 SPICA 引擎", "SPICA引擎", "完整解析 PICA200 TEV 混合、UV 采样与材质通道"),
     PICA_HOME(2, "🎮 HOME 复刻引擎 (PICA优化)", "HOME复刻", "参考 cgfx-gltf + HOME Menu 规则：自动抠纯色底、提亮片元灰底与顶点色/AlphaTest 修复"),
-    WASM_THREE(3, "🧪 WASM+Three (新版复刻)", "WASM复刻", "复刻 3DSLauncher 架构：Rust WASM 解码 GLB + Three.js 实时执行 EXT_cgfx_pica 与原机动画"),
     LEGACY(1, "🛡️ 经典兼容引擎", "经典引擎", "保留原有轻量级基础贴图渲染方案");
 
     companion object {
-        fun fromId(id: Int): CgfxRenderEngine = entries.firstOrNull { it.engineId == id } ?: SPICA
+        fun fromId(id: Int): CgfxRenderEngine = entries.firstOrNull { it.engineId == id } ?: WASM_THREE
     }
 }

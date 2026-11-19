@@ -211,7 +211,7 @@ class LowerScreenView @JvmOverloads constructor(
         }
 
     var upperDisplayMode3ds: UpperDisplayMode = UpperDisplayMode.SYSTEM_3DS
-    var cgfxRenderEngine: CgfxRenderEngine = CgfxRenderEngine.SPICA
+    var cgfxRenderEngine: CgfxRenderEngine = CgfxRenderEngine.WASM_THREE
         set(value) {
             field = value
             invalidate()
