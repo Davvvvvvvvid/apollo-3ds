@@ -289,7 +289,7 @@ class UpperScreenView @JvmOverloads constructor(
             }
         }
 
-    var cgfxRenderEngine: CgfxRenderEngine = CgfxRenderEngine.SPICA
+    var cgfxRenderEngine: CgfxRenderEngine = CgfxRenderEngine.WASM_THREE
         set(value) {
             if (field != value) {
                 field = value
@@ -421,6 +421,10 @@ class UpperScreenView @JvmOverloads constructor(
     // 硬件加速内嵌实机视频预览组件 (用于播放 media/<游戏名>/video.mp4)
     private val videoTextureView: TextureView
     private val cgfxBannerView: CgfxGLBannerView
+    private val cgfxWebBannerView: CgfxWebBannerView
+    private var topStillBitmap: Bitmap? = null
+    private val batteryBitmaps = arrayOfNulls<Bitmap>(5)
+    private var batteryChargeBitmap: Bitmap? = null
     @Volatile
     private var isCgfxBannerActive: Boolean = false
     @Volatile
@@ -530,6 +534,28 @@ class UpperScreenView @JvmOverloads constructor(
             visibility = View.GONE
         }
         addView(cgfxBannerView, LayoutParams(baseTextureW, baseTextureH))
+
+        cgfxWebBannerView = CgfxWebBannerView(context).apply {
+            visibility = View.GONE
+            onBannerReady = {
+                postInvalidate()
+            }
+        }
+        addView(cgfxWebBannerView, LayoutParams(baseTextureW, baseTextureH))
+
+        try {
+            context.assets.open("3ds_art/top-still.png").use { stream ->
+                topStillBitmap = BitmapFactory.decodeStream(stream)
+            }
+            for (i in 0..4) {
+                context.assets.open("3ds_art/battery$i.png").use { stream ->
+                    batteryBitmaps[i] = BitmapFactory.decodeStream(stream)
+                }
+            }
+            context.assets.open("3ds_art/batterycharge.png").use { stream ->
+                batteryChargeBitmap = BitmapFactory.decodeStream(stream)
+            }
+        } catch (_: Throwable) {}
     }
 
     override fun onAttachedToWindow() {
@@ -782,19 +808,28 @@ class UpperScreenView @JvmOverloads constructor(
             isCgfxBannerActive = false
             isCgfxFallbackLogo = false
             cgfxBannerView.visibility = View.GONE
+            cgfxWebBannerView.visibility = View.GONE
+            cgfxWebBannerView.clearBanner()
             return
         }
-        // 在「3DS原系统效果」模式下，优先呈现 3DS 原机 CGFX 3D 横幅（仅当存在预渲染 bannerAnimationPath 时让位于视频）；其他模式优先播 video.mp4
+        // 在「3DS原系统效果」模式下，优先呈现 3DS 原机 CGFX 3D 横幅，不被任何视频覆盖；若不能提取 3DS 动画则回退为居中 Logo
         val isSystem3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
         val hasVideoOverride = if (isSystem3dsMode) {
-            item.bannerAnimationPath.isNotBlank()
+            false
         } else {
             item.videoPath.isNotBlank() || item.bannerAnimationPath.isNotBlank()
         }
         if (hasVideoOverride || !is3dsSlot(item)) {
             isCgfxBannerActive = false
-            isCgfxFallbackLogo = isSystem3dsMode && !hasVideoOverride
+            isCgfxFallbackLogo = isSystem3dsMode
             cgfxBannerView.visibility = View.GONE
+            cgfxWebBannerView.visibility = View.GONE
+            cgfxWebBannerView.clearBanner()
+            if (isCgfxFallbackLogo) {
+                stopAndReleaseVideoPlayer()
+                videoTextureView.alpha = 0f
+                invalidate()
+            }
             return
         }
         isCgfxFallbackLogo = false
@@ -815,18 +850,31 @@ class UpperScreenView @JvmOverloads constructor(
                         }
                     }
                 }
-                val useSpicaLike = (cgfxRenderEngine != CgfxRenderEngine.LEGACY)
+                val useWasmThree = (cgfxRenderEngine == CgfxRenderEngine.WASM_THREE)
+                val useSpicaLike = (cgfxRenderEngine == CgfxRenderEngine.SPICA || cgfxRenderEngine == CgfxRenderEngine.PICA_HOME)
                 val useHomeMenuFixes = (cgfxRenderEngine == CgfxRenderEngine.PICA_HOME)
-                val spicaScene = if (useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+                val cgfxRawBytes = if (cgfxPath.isNotBlank()) {
+                    try {
+                        if (cgfxPath.startsWith("asset://")) {
+                            val rel = cgfxPath.removePrefix("asset://").removePrefix("/")
+                            context.assets.open(rel).use { it.readBytes() }
+                        } else {
+                            File(cgfxPath).readBytes()
+                        }.takeIf { it.size >= 16 }
+                    } catch (_: Throwable) { null }
+                } else null
+
+                val wasmCgfxBytes = if (useWasmThree) cgfxRawBytes else null
+                val spicaScene = if (useSpicaLike && cgfxRawBytes != null) {
                     val targetCache = if (useHomeMenuFixes) picaHomeSceneCache else spicaSceneCache
                     targetCache.get(cgfxPath)
-                        ?: com.gameconsole.launcher3ds.parser.SpicaCgfxParser.parseFile(File(cgfxPath), applyHomeMenuFixes = useHomeMenuFixes)?.also {
+                        ?: com.gameconsole.launcher3ds.parser.SpicaCgfxParser.parseBytes(cgfxRawBytes, applyHomeMenuFixes = useHomeMenuFixes)?.also {
                             targetCache.put(cgfxPath, it)
                         }
                 } else null
-                val legacyScene = if (!useSpicaLike && cgfxPath.isNotBlank() && !cgfxPath.startsWith("asset://")) {
+                val legacyScene = if (!useWasmThree && !useSpicaLike && cgfxRawBytes != null) {
                     cgfxSceneCache.get(cgfxPath)
-                        ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseFile(File(cgfxPath))?.also {
+                        ?: com.gameconsole.launcher3ds.parser.CgfxParser.parseBytes(cgfxRawBytes)?.also {
                             cgfxSceneCache.put(cgfxPath, it)
                         }
                 } else null
@@ -837,26 +885,46 @@ class UpperScreenView @JvmOverloads constructor(
                         upperDisplayMode != UpperDisplayMode.LOGO_TITLE &&
                         (!isVideoFrameReady || upperDisplayMode == UpperDisplayMode.SYSTEM_3DS)
                     ) {
-                        val hasValidScene = (useSpicaLike && spicaScene != null) || (!useSpicaLike && legacyScene != null)
+                        val hasValidScene = (useWasmThree && wasmCgfxBytes != null) ||
+                            (useSpicaLike && spicaScene != null) ||
+                            (!useWasmThree && !useSpicaLike && legacyScene != null)
                         if (hasValidScene) {
                             if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
                                 stopAndReleaseVideoPlayer()
                                 isVideoFrameReady = false
                             }
                             currentCgfxKey = cgfxPath
-                            if (useSpicaLike) {
-                                cgfxBannerView.setSpicaScene(spicaScene, homeMenuMode = useHomeMenuFixes)
-                            } else {
-                                cgfxBannerView.setScene(legacyScene)
+                            when {
+                                useWasmThree -> {
+                                    cgfxBannerView.visibility = View.GONE
+                                    cgfxWebBannerView.visibility = View.VISIBLE
+                                    cgfxWebBannerView.setCgfxBytes(cgfxPath, wasmCgfxBytes, title = item.title)
+                                }
+                                useSpicaLike -> {
+                                    cgfxWebBannerView.visibility = View.GONE
+                                    cgfxWebBannerView.clearBanner()
+                                    cgfxBannerView.visibility = View.VISIBLE
+                                    cgfxBannerView.setSpicaScene(spicaScene, homeMenuMode = useHomeMenuFixes)
+                                }
+                                else -> {
+                                    cgfxWebBannerView.visibility = View.GONE
+                                    cgfxWebBannerView.clearBanner()
+                                    cgfxBannerView.visibility = View.VISIBLE
+                                    cgfxBannerView.setScene(legacyScene)
+                                }
                             }
                             isCgfxFallbackLogo = false
                             isCgfxBannerActive = true
                             invalidate()
                         } else if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
-                            // 未提取到有效 3D 横幅元素时，自动回退为居中 Logo 图片模式
+                            // 未提取到有效 3D 横幅元素时，自动回退为居中 Logo 图片模式（严禁播放视频）
                             isCgfxBannerActive = false
                             isCgfxFallbackLogo = true
+                            stopAndReleaseVideoPlayer()
+                            videoTextureView.alpha = 0f
                             cgfxBannerView.visibility = View.GONE
+                            cgfxWebBannerView.visibility = View.GONE
+                            cgfxWebBannerView.clearBanner()
                             invalidate()
                         }
                         if (wavPath.isNotBlank()) {
@@ -869,7 +937,11 @@ class UpperScreenView @JvmOverloads constructor(
                     if (selectedSlot?.id == targetId && upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
                         isCgfxBannerActive = false
                         isCgfxFallbackLogo = true
+                        stopAndReleaseVideoPlayer()
+                        videoTextureView.alpha = 0f
                         cgfxBannerView.visibility = View.GONE
+                        cgfxWebBannerView.visibility = View.GONE
+                        cgfxWebBannerView.clearBanner()
                         invalidate()
                     }
                 }
@@ -884,11 +956,11 @@ class UpperScreenView @JvmOverloads constructor(
             return
         }
         val item = selectedSlot
-        if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && item != null &&
-            item.bannerAnimationPath.isBlank() &&
-            (isCgfxBannerActive || (item.cgfxPath.isNotBlank() && !item.cgfxPath.startsWith("asset://")))
-        ) {
+        if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS || (item != null && is3dsSlot(item))) {
+            // 3DS 原系统模式与 3DS ROM：严禁播放视频（若无法提取 3D CGFX 动画则居中显示游戏大 Logo）
             stopAndReleaseVideoPlayer()
+            videoTextureView.alpha = 0f
+            videoTextureView.translationX = -9999f
             return
         }
         val targetVideo = if (isHostResumed && isStageApplet(activeApplet) && item != null && item.type != PlatformType.EMPTY) {
@@ -1151,7 +1223,7 @@ class UpperScreenView @JvmOverloads constructor(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive && !isVideoFrameReady && isCgfxFallbackLogo
+        val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive
         val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE || isCgfxFallbackLogoMode)
         if (isCenteredLogoMode || !isVideoPreviewEnabled) {
             videoTextureView.alpha = 0f
@@ -1174,7 +1246,8 @@ class UpperScreenView @JvmOverloads constructor(
         // 在视频画面之上叠加：实时画面滤镜纹理、玻璃镜面光泽、LIVE VIDEO 徽标以及前景 3D 视差悬浮的透明游戏官方 Logo (logo.png)
         val item = selectedSlot
         if (isStageApplet(activeApplet) && item != null && item.type != PlatformType.EMPTY && !currentScreenAbsRect.isEmpty) {
-            val isCgfxVisible = isCgfxBannerActive && !isVideoFrameReady && cgfxBannerView.visibility == View.VISIBLE
+            val isCgfxVisible = isCgfxBannerActive && !isVideoFrameReady &&
+                (cgfxBannerView.visibility == View.VISIBLE || cgfxWebBannerView.visibility == View.VISIBLE)
             // 1) 视频屏实时画面滤镜叠加层（扫描线 / 3DS 液晶点阵 / 复古色调暗角等）+ 顶部镜面玻璃光泽（原机悬浮3D横幅不画电视反光框）
             if (!isCgfxVisible) {
                 canvas.save()
@@ -1495,8 +1568,10 @@ class UpperScreenView @JvmOverloads constructor(
         canvas.drawRect(0f, 0f, w, horizonY + 2f, paint)
         paint.shader = null
 
-        // 2. 当前游戏画面的超柔和全景环境光映射（优先使用预览图或实体盒封面 boxFront.png 渲染氛围）
-        val atmosphereBmp = if (item != null && item.type != PlatformType.EMPTY) {
+        val isPure3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) || isCgfxBannerActive
+
+        // 2. 当前游戏画面的超柔和全景环境光映射（3DS原系统模式彻底禁用，确保使用纯净原生主题背景，不混杂模糊游戏封面与手柄水印）
+        val atmosphereBmp = if (!isPure3dsMode && item != null && item.type != PlatformType.EMPTY) {
             resolveSlotPreview(item) ?: resolveSlotBoxart(item)
         } else {
             null
@@ -1847,15 +1922,43 @@ class UpperScreenView @JvmOverloads constructor(
         val cy = barH * 0.56f
         val pillH = barH * 0.68f
 
-        // 上屏顶部左侧已根据用户要求隐藏，不再显示任何状态胶囊与播放按键
         topAudioToggleRect.setEmpty()
 
         val isDarkSky = isColorDark(currentTheme.upperSkyTop)
         val primaryHudColor = if (isDarkSky) Color.WHITE else Color.parseColor("#1E293B")
         val pillBgAlphaColor = if (isDarkSky) Color.argb(55, 0, 0, 0) else Color.argb(85, 255, 255, 255)
 
-        // 3. 右上角：日期时间 + 3DS 四格立体电池（包裹在轻盈半透明胶囊中，电池正极朝右不遮挡文字）
+        // 1. 左上角：3DS 原机风格「互联网」状态胶囊与三阶信号波
+        val leftPillW = barH * 2.85f
+        val leftPillRect = RectF(14f, cy - pillH / 2f, 14f + leftPillW, cy + pillH / 2f)
+        paint.color = pillBgAlphaColor
+        canvas.drawRoundRect(leftPillRect, pillH / 2f, pillH / 2f, paint)
+
+        val sigX = leftPillRect.left + 14f
+        val sigBaseY = cy + pillH * 0.22f
+        val sigMaxH = pillH * 0.44f
+        for (i in 0..2) {
+            val barHeight = sigMaxH * (0.35f + i * 0.325f)
+            val barW = 3.2f
+            val bx = sigX + i * 6.2f
+            paint.color = Color.parseColor("#0EA5E9") // 3DS 标致电光天蓝
+            canvas.drawRoundRect(RectF(bx, sigBaseY - barHeight, bx + barW, sigBaseY), 1.5f, 1.5f, paint)
+        }
+        statusTextPaint.textSize = barH * 0.35f
+        statusTextPaint.color = primaryHudColor
+        statusTextPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("互联网", sigX + 24f, cy - (statusTextPaint.descent() + statusTextPaint.ascent()) / 2f, statusTextPaint)
+
+        // 2. 右上角：日期时间 + 3DS 原机四格立体电池 (优先绘制原生提取自 3DS 的 18x11 点阵贴图)
         val (batteryPct, isCharging) = readBatteryState()
+        val bars = when {
+            batteryPct >= 75 -> 4
+            batteryPct >= 50 -> 3
+            batteryPct >= 25 -> 2
+            batteryPct > 5 -> 1
+            else -> 0
+        }
+        val battBmp = if (isCharging) batteryChargeBitmap else batteryBitmaps[bars.coerceIn(0, 4)]
         val battW = barH * 1.15f
         val battH = barH * 0.50f
         statusTextPaint.textSize = barH * 0.37f
@@ -1869,39 +1972,41 @@ class UpperScreenView @JvmOverloads constructor(
         val battRight = rightPillRect.right - 16f
         val battLeft = battRight - battW
 
-        // 电池正极小帽（置于右侧）
-        rect.set(battRight, cy - battH * 0.26f, battRight + 3.5f, cy + battH * 0.26f)
-        paint.color = primaryHudColor
-        canvas.drawRoundRect(rect, 1.5f, 1.5f, paint)
+        if (battBmp != null) {
+            val bmpW = barH * 0.78f
+            val bmpH = bmpW * (battBmp.height.toFloat() / battBmp.width.toFloat())
+            val bmpLeft = rightPillRect.right - 16f - bmpW
+            val bmpTop = cy - bmpH / 2f
+            canvas.drawBitmap(battBmp, null, RectF(bmpLeft, bmpTop, bmpLeft + bmpW, bmpTop + bmpH), bitmapPaint)
+        } else {
+            // 电池正极小帽（置于右侧）
+            rect.set(battRight, cy - battH * 0.26f, battRight + 3.5f, cy + battH * 0.26f)
+            paint.color = primaryHudColor
+            canvas.drawRoundRect(rect, 1.5f, 1.5f, paint)
 
-        // 电池外框
-        rect.set(battLeft, cy - battH / 2f, battRight, cy + battH / 2f)
-        paint.color = Color.argb(65, 0, 0, 0)
-        canvas.drawRoundRect(rect, 3.5f, 3.5f, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1.8f
-        paint.color = primaryHudColor
-        canvas.drawRoundRect(rect, 3.5f, 3.5f, paint)
-        paint.style = Paint.Style.FILL
+            // 电池外框
+            rect.set(battLeft, cy - battH / 2f, battRight, cy + battH / 2f)
+            paint.color = Color.argb(65, 0, 0, 0)
+            canvas.drawRoundRect(rect, 3.5f, 3.5f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.8f
+            paint.color = primaryHudColor
+            canvas.drawRoundRect(rect, 3.5f, 3.5f, paint)
+            paint.style = Paint.Style.FILL
 
-        val bars = when {
-            batteryPct >= 75 -> 4
-            batteryPct >= 50 -> 3
-            batteryPct >= 25 -> 2
-            else -> 1
-        }
-        val barColor = when {
-            isCharging -> Color.parseColor("#FFA000")
-            bars == 1 -> Color.parseColor("#FF3B30")
-            else -> Color.parseColor("#00C8FF")
-        }
-        val innerPad = 2.5f
-        val segGap = 1.8f
-        val segW = (battW - innerPad * 2f - segGap * 3f) / 4f
-        paint.color = barColor
-        for (b in 0 until bars) {
-            val sx = battLeft + innerPad + b * (segW + segGap)
-            canvas.drawRect(sx, rect.top + innerPad, sx + segW, rect.bottom - innerPad, paint)
+            val barColor = when {
+                isCharging -> Color.parseColor("#FFA000")
+                bars == 1 -> Color.parseColor("#FF3B30")
+                else -> Color.parseColor("#00C8FF")
+            }
+            val innerPad = 2.5f
+            val segGap = 1.8f
+            val segW = (battW - innerPad * 2f - segGap * 3f) / 4f
+            paint.color = barColor
+            for (b in 0 until bars) {
+                val sx = battLeft + innerPad + b * (segW + segGap)
+                canvas.drawRect(sx, rect.top + innerPad, sx + segW, rect.bottom - innerPad, paint)
+            }
         }
 
         statusTextPaint.color = primaryHudColor
@@ -1919,7 +2024,11 @@ class UpperScreenView @JvmOverloads constructor(
     private fun drawGameBanner3DStage(canvas: Canvas, w: Float, h: Float, topBarH: Float) {
         val item = selectedSlot
         val stageCenterX = w * 0.5f
-        val stageCenterY = topBarH + (h - topBarH) * 0.415f
+        val stageCenterY = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
+            topBarH + (h - topBarH - (h * 0.125f)) * 0.5f
+        } else {
+            topBarH + (h - topBarH) * 0.415f
+        }
         // 1. 硬件陀螺仪/重力感应器 3D 裸眼视差联动平滑计算
         smoothSensorTiltX += (targetSensorTiltX - smoothSensorTiltX) * 0.15f
         smoothSensorTiltY += (targetSensorTiltY - smoothSensorTiltY) * 0.15f
@@ -1953,15 +2062,19 @@ class UpperScreenView @JvmOverloads constructor(
             currentTheme.cursorMainColor
         }
 
-        // 中心环绕声波圆环动画
-        for (ring in 1..3) {
-            val ringPhase = (animPhase * 0.65f + ring * 0.33f) % 1f
-            val ringRadius = (minOf(w, h) * 0.22f) + ringPhase * (minOf(w, h) * 0.28f)
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 2.2f * (1f - ringPhase)
-            paint.color = blendColor(currentTheme.cursorMainColor, accentColor, 0.35f)
-            paint.alpha = ((1f - ringPhase) * 90).toInt().coerceIn(0, 255)
-            canvas.drawCircle(stageCenterX, stageCenterY + floatY, ringRadius, paint)
+        val isPure3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) || isCgfxBannerActive
+
+        // 中心环绕声波圆环动画（3DS 原系统模式与 3D 横幅模式下禁用，保持纯净舞台背景）
+        if (!isPure3dsMode) {
+            for (ring in 1..3) {
+                val ringPhase = (animPhase * 0.65f + ring * 0.33f) % 1f
+                val ringRadius = (minOf(w, h) * 0.22f) + ringPhase * (minOf(w, h) * 0.28f)
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 2.2f * (1f - ringPhase)
+                paint.color = blendColor(currentTheme.cursorMainColor, accentColor, 0.35f)
+                paint.alpha = ((1f - ringPhase) * 90).toInt().coerceIn(0, 255)
+                canvas.drawCircle(stageCenterX, stageCenterY + floatY, ringRadius, paint)
+            }
         }
         paint.style = Paint.Style.FILL
         paint.alpha = 255
@@ -2011,38 +2124,40 @@ class UpperScreenView @JvmOverloads constructor(
         // 解除原本 460px 的高度上限，将中央舞台与视频窗口大幅放大至上屏可用高度的 68%
         val stageH = ((h - topBarH) * 0.68f).coerceIn(180f, h * 0.72f) * bannerPopScale
 
-        // 绘制 3D 透视地面上的全息渐变能量光环底座
-        val pedestalY = stageCenterY + stageH * 0.52f
-        val pedRx = stageH * 1.32f
-        val pedRy = stageH * 0.13f
-        canvas.save()
-        canvas.translate(stageCenterX + tiltX * 0.3f, pedestalY)
-        canvas.scale(1f, pedRy / pedRx)
-        paint.style = Paint.Style.FILL
-        paint.shader = RadialGradient(
-            0f, 0f, pedRx,
-            intArrayOf(
-                Color.argb(55, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
-                Color.argb(30, 15, 28, 46),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(0f, 0.55f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawCircle(0f, 0f, pedRx, paint)
-        paint.shader = null
+        // 绘制 3D 透视地面上的全息渐变能量光环底座（3DS 原系统模式与 3D 横幅模式下禁用）
+        if (!isPure3dsMode) {
+            val pedestalY = stageCenterY + stageH * 0.52f
+            val pedRx = stageH * 1.32f
+            val pedRy = stageH * 0.13f
+            canvas.save()
+            canvas.translate(stageCenterX + tiltX * 0.3f, pedestalY)
+            canvas.scale(1f, pedRy / pedRx)
+            paint.style = Paint.Style.FILL
+            paint.shader = RadialGradient(
+                0f, 0f, pedRx,
+                intArrayOf(
+                    Color.argb(55, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
+                    Color.argb(30, 15, 28, 46),
+                    Color.TRANSPARENT
+                ),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(0f, 0f, pedRx, paint)
+            paint.shader = null
 
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 6f
-        paint.color = blendColor(currentTheme.cursorGlowColor, Color.WHITE, 0.4f)
-        paint.alpha = 85
-        canvas.drawCircle(0f, 0f, pedRx * 0.78f, paint)
-        paint.strokeWidth = 4f
-        paint.alpha = 45
-        canvas.drawCircle(0f, 0f, pedRx * 0.96f, paint)
-        paint.style = Paint.Style.FILL
-        paint.alpha = 255
-        canvas.restore()
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 6f
+            paint.color = blendColor(currentTheme.cursorGlowColor, Color.WHITE, 0.4f)
+            paint.alpha = 85
+            canvas.drawCircle(0f, 0f, pedRx * 0.78f, paint)
+            paint.strokeWidth = 4f
+            paint.alpha = 45
+            canvas.drawCircle(0f, 0f, pedRx * 0.96f, paint)
+            paint.style = Paint.Style.FILL
+            paint.alpha = 255
+            canvas.restore()
+        }
 
         val isGameItem = item.type != PlatformType.EMPTY && item.type != PlatformType.FOLDER && item.type != PlatformType.BADGE
         if (isGameItem && hasMediaShowcase) {
@@ -2092,7 +2207,7 @@ class UpperScreenView @JvmOverloads constructor(
                 return
             }
 
-            val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive && !isVideoFrameReady && isCgfxFallbackLogo
+            val isCgfxFallbackLogoMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) && !isCgfxBannerActive
             val isCenteredLogoMode = (upperDisplayMode == UpperDisplayMode.LOGO_ONLY || upperDisplayMode == UpperDisplayMode.LOGO_TITLE || isCgfxFallbackLogoMode)
             if (isCenteredLogoMode) {
                 // 👑 居中 Logo 展台：支持「纯Logo极简」、「Logo+纯文字标题」以及未提取到 3D Banner 时的自动回退
@@ -2195,6 +2310,17 @@ class UpperScreenView @JvmOverloads constructor(
                             title = item.title,
                             subtitle = item.subtitle.ifBlank { item.publisher }
                         )
+                    } else if (isCgfxFallbackLogoMode) {
+                        draw3dsSpeechBubblePlate(
+                            canvas = canvas,
+                            w = w,
+                            h = h,
+                            stageBottomY = heroRect.bottom + 8f,
+                            title = item.title,
+                            subtitle = "",
+                            platformBadge = "",
+                            badgeColor = accentColor
+                        )
                     }
                 }
                 return
@@ -2270,12 +2396,21 @@ class UpperScreenView @JvmOverloads constructor(
                 }
                 gapBetween = stageH * 0.045f
             } else if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && isCgfxBannerActive && !isVideoFrameReady) {
-                // 3DS 原系统悬浮 3D 横幅：无边框全视野悬浮舞台
+                // 3DS 原系统悬浮 3D 横幅：无边框全视野悬浮舞台，最大化放大 3D 模型视口空间
                 boxW = 0f
                 boxH = 0f
                 gapBetween = 0f
-                screenH = (stageH * 1.16f).coerceAtMost(h - topBarH - 12f)
-                screenW = w * 0.90f
+                val bottomOccupied = h * 0.125f
+                val availH = (h - topBarH - bottomOccupied).coerceAtLeast(1f)
+                val maxW = (w * 0.96f).coerceAtLeast(1f)
+                var bW = availH * (5f / 3f)
+                var bH = availH
+                if (bW > maxW) {
+                    bW = maxW
+                    bH = bW * (3f / 5f)
+                }
+                screenW = bW
+                screenH = bH
             } else {
                 // 纯净大屏影院模式：左侧组件隐藏，右侧屏幕自动居中放大
                 boxW = 0f
@@ -2287,7 +2422,7 @@ class UpperScreenView @JvmOverloads constructor(
             }
 
             var totalStageW = boxW + gapBetween + screenW
-            val maxStageW = w * 0.92f
+            val maxStageW = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) w * 0.96f else w * 0.92f
             if (totalStageW > maxStageW) {
                 val scale = maxStageW / totalStageW
                 screenH *= scale
@@ -2298,8 +2433,13 @@ class UpperScreenView @JvmOverloads constructor(
                 totalStageW = maxStageW
             }
 
-            val cx = stageCenterX + tiltX * 0.4f
-            val cy = stageCenterY + floatY
+            val isPure3ds = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS && isCgfxBannerActive && !isVideoFrameReady)
+            val cx = if (isPure3ds) stageCenterX else (stageCenterX + tiltX * 0.4f)
+            val cy = if (isPure3ds) {
+                topBarH + (h - topBarH - (h * 0.125f)) * 0.5f
+            } else {
+                stageCenterY + floatY
+            }
 
             val boxRect: RectF
             val screenRect: RectF
@@ -2347,35 +2487,58 @@ class UpperScreenView @JvmOverloads constructor(
                 videoTextureView.translationY = -9999f
             }
 
-            // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView) 的坐标、尺寸与陀螺仪视差
+            // 同步更新实时 CGFX 3D 原机横幅视图 (cgfxBannerView / cgfxWebBannerView) 的坐标、尺寸与陀螺仪视差
+            val activeCgfxView: View = if (cgfxRenderEngine == CgfxRenderEngine.WASM_THREE) cgfxWebBannerView else cgfxBannerView
+            val inactiveCgfxView: View = if (cgfxRenderEngine == CgfxRenderEngine.WASM_THREE) cgfxBannerView else cgfxWebBannerView
+            if (inactiveCgfxView.visibility != View.GONE) {
+                post {
+                    if (inactiveCgfxView.visibility != View.GONE) {
+                        inactiveCgfxView.visibility = View.GONE
+                    }
+                }
+            }
             if (!isVideoFrameReady && isCgfxBannerActive && isStageApplet(activeApplet) &&
                 upperDisplayMode != UpperDisplayMode.LOGO_ONLY && upperDisplayMode != UpperDisplayMode.LOGO_TITLE) {
-                // 让 3D 实时横幅占据上屏中央最外层舞台区域（不受内圈约束，状态栏以下、标题胶囊以上）
-                val targetW = (width * 0.94f).toInt().coerceAtLeast(1)
-                val targetH = (height * 0.78f).toInt().coerceAtLeast(1)
+                // 让 3D 实时横幅以标准 5:3 原机比例居中占据中央舞台（状态栏以下、标题胶囊以上，极大幅面展示）
+                val bottomOccupied = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) height * 0.125f else height * 0.20f
+                val availH = (height - topBarH - bottomOccupied).coerceAtLeast(1f)
+                val maxW = (width * 0.96f).coerceAtLeast(1f)
+                var targetW = (availH * (5f / 3f)).toInt()
+                var targetH = availH.toInt()
+                if (targetW > maxW) {
+                    targetW = maxW.toInt()
+                    targetH = (targetW * (3f / 5f)).toInt()
+                }
                 val targetL = ((width - targetW) * 0.5f).toInt()
-                val targetT = (height * 0.03f).toInt()
-                val lp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
-                if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || cgfxBannerView.visibility != View.VISIBLE) {
+                val targetT = (topBarH + (height - topBarH - bottomOccupied - targetH) * 0.5f).toInt().coerceAtLeast(topBarH.toInt())
+                val lp = (activeCgfxView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
+                if (lp.width != targetW || lp.height != targetH || lp.leftMargin != targetL || lp.topMargin != targetT || activeCgfxView.visibility != View.VISIBLE) {
                     post {
-                        val curLp = (cgfxBannerView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
+                        val curLp = (activeCgfxView.layoutParams as? LayoutParams) ?: LayoutParams(targetW, targetH)
                         curLp.width = targetW
                         curLp.height = targetH
                         curLp.leftMargin = targetL
                         curLp.topMargin = targetT
-                        cgfxBannerView.layoutParams = curLp
-                        if (cgfxBannerView.visibility != View.VISIBLE) {
-                            cgfxBannerView.visibility = View.VISIBLE
+                        activeCgfxView.layoutParams = curLp
+                        if (activeCgfxView.visibility != View.VISIBLE) {
+                            activeCgfxView.visibility = View.VISIBLE
                         }
                     }
                 }
-                cgfxBannerView.parallaxX = tiltX / 20f
-                cgfxBannerView.parallaxY = totalTiltY / 20f
+                if (activeCgfxView === cgfxBannerView) {
+                    cgfxBannerView.parallaxX = tiltX / 20f
+                    cgfxBannerView.parallaxY = totalTiltY / 20f
+                } else if (activeCgfxView === cgfxWebBannerView) {
+                    cgfxWebBannerView.setRotationAngle(tiltX * 0.035f)
+                }
             } else {
-                if (cgfxBannerView.visibility != View.GONE) {
+                if (cgfxBannerView.visibility != View.GONE || cgfxWebBannerView.visibility != View.GONE) {
                     post {
                         if (cgfxBannerView.visibility != View.GONE) {
                             cgfxBannerView.visibility = View.GONE
+                        }
+                        if (cgfxWebBannerView.visibility != View.GONE) {
+                            cgfxWebBannerView.visibility = View.GONE
                         }
                     }
                 }
@@ -2565,7 +2728,7 @@ class UpperScreenView @JvmOverloads constructor(
             }
 
             // 2. 右侧：大幅放大的影院级实机游戏画面/视频预览屏（若是 3DS 原系统悬浮 CGFX，则去掉白框与黑底直接悬浮于主题天空之上）
-            val hasCgfx3d = isCgfxBannerActive || (is3dsSlot(item) && item.cgfxPath.isNotBlank() && !item.cgfxPath.startsWith("asset://"))
+            val hasCgfx3d = isCgfxBannerActive || (is3dsSlot(item) && item.cgfxPath.isNotBlank())
             val isPure3dsFloatingCgfx = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) &&
                     !isVideoFrameReady && hasCgfx3d
 
@@ -2709,7 +2872,7 @@ class UpperScreenView @JvmOverloads constructor(
         val catName = GameCategory.fromId(item.categoryId).shortName
         val platDef = com.gameconsole.launcher3ds.model.PlatformCatalog.getById(item.getEffectivePlatform())
         val platTitle = platDef?.shortName ?: "3DS"
-        val platformBadge = when (item.type) {
+        val platformBadge = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) "" else when (item.type) {
             PlatformType.FOLDER -> "3DS 文件夹 (${folderChildrenCount}项)"
             PlatformType.BADGE -> "桌面徽章"
             PlatformType.ANDROID_APP -> "ANDROID APP · $catName"
@@ -2722,7 +2885,9 @@ class UpperScreenView @JvmOverloads constructor(
         }
         val hours = item.playTimeMinutes / 60
         val mins = item.playTimeMinutes % 60
-        val subText = if (item.type == PlatformType.N3DS || item.type == PlatformType.NDS) {
+        val subText = if (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) {
+            "" // 3DS原系统模式：仅保留主标题，彻底去除简介与统计，最大化留白给 3D 横幅动画
+        } else if (item.type == PlatformType.N3DS || item.type == PlatformType.NDS) {
             val subClean = item.subtitle.trim()
             val pubClean = item.publisher.trim()
             val metaPrefix = when {
@@ -2841,8 +3006,7 @@ class UpperScreenView @JvmOverloads constructor(
         platformBadge: String = "",
         badgeColor: Int = Color.TRANSPARENT
     ) {
-        val centerX = w / 2f
-        val isDarkTheme = isColorDark(currentTheme.upperSkyBottom)
+        val centerX = w * 0.5f
 
         // 彻底移除底板背景色、胶囊主体、流光翼带与描边，让文字纯粹自然地与上屏背景融为一体
         val baseTitleSize = (h * 0.078f).coerceIn(32f, 48f)
@@ -2855,6 +3019,8 @@ class UpperScreenView @JvmOverloads constructor(
         val cleanTitle = ellipsize(title, textPaint, maxTextW)
         val titleY = (stageBottomY + h * 0.055f).coerceAtMost(h - baseTitleSize * 1.1f)
 
+        val isDarkTheme = isColorDark(currentTheme.upperSkyBottom)
+
         // 1) 柔和细腻的深邃立体阴影 (让文字立体悬浮，且无论在任何浅色或深色背景下均清晰醒目)
         textPaint.color = Color.argb(150, 0, 0, 0)
         canvas.drawText(cleanTitle, centerX + 1.8f, titleY + 2.5f, textPaint)
@@ -2863,8 +3029,9 @@ class UpperScreenView @JvmOverloads constructor(
         textPaint.color = if (isDarkTheme) Color.WHITE else Color.parseColor("#1E293B")
         canvas.drawText(cleanTitle, centerX, titleY, textPaint)
 
-        // 3) 若有副标题，以柔和次要字色悬浮在下方
-        if (subtitle.isNotBlank()) {
+        // 3) 若有副标题，以柔和次要字色悬浮在下方（3DS原系统模式只显示纯标题，不显示副标题，给动画留更大空间）
+        val isPure3dsMode = (upperDisplayMode == UpperDisplayMode.SYSTEM_3DS) || isCgfxBannerActive
+        if (!isPure3dsMode && subtitle.isNotBlank()) {
             val subFontSize = (baseTitleSize * 0.44f).coerceIn(14f, 20f)
             textPaint.typeface = apolloRegularTypeface
             textPaint.textSize = subFontSize

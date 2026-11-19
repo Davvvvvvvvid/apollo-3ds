@@ -1451,7 +1451,7 @@ class LauncherRepository(private val context: Context) {
 
     var cgfxRenderEngine: CgfxRenderEngine
         get() {
-            val id = prefs.getInt(KEY_CGFX_RENDER_ENGINE, CgfxRenderEngine.SPICA.engineId)
+            val id = prefs.getInt(KEY_CGFX_RENDER_ENGINE, CgfxRenderEngine.WASM_THREE.engineId)
             return CgfxRenderEngine.fromId(id)
         }
         set(engine) {
